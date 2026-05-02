@@ -1,0 +1,36 @@
+{
+  "id": "TASK-011",
+  "repo": "backend",
+  "kind": "test",
+  "title": "Backend full verification",
+  "objective": "Run and stabilize backend formatting, linting, tests, and release build after all backend implementation tasks land.",
+  "context": [
+    "This is the backend verification gate required by project rules.",
+    "Fix only backend-owned issues discovered by fmt, clippy, tests, or build."
+  ],
+  "write_scope": [
+    "backend/**"
+  ],
+  "depends_on": [
+    "TASK-007"
+  ],
+  "wave": 6,
+  "parallel_group": "verification",
+  "owner_role": "qa",
+  "acceptance_criteria": [
+    "cargo fmt --check passes.",
+    "cargo clippy --all-targets -- -D warnings passes.",
+    "cargo test passes without external OpenRouter calls.",
+    "cargo build --release succeeds."
+  ],
+  "verification_commands": [
+    "cargo fmt --manifest-path backend/Cargo.toml --check",
+    "cargo clippy --manifest-path backend/Cargo.toml --all-targets -- -D warnings",
+    "cargo test --manifest-path backend/Cargo.toml",
+    "cargo build --manifest-path backend/Cargo.toml --release"
+  ],
+  "risk_notes": [
+    "Do not hide failures by weakening tests or removing required error handling.",
+    "If clippy exposes design issues in shared types, coordinate with frontend contract expectations before changing JSON shapes."
+  ]
+}

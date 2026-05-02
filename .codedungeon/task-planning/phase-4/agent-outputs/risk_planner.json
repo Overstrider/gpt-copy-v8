@@ -1,0 +1,127 @@
+{
+  "role": "risk_planner",
+  "agent_name": "risk-scout",
+  "provider": "codex",
+  "model": "gpt-5",
+  "session_id": "phase-4",
+  "confidence": 0.84,
+  "summary": "Risk plan for gpt-copy-v8 identifies the main delivery hazards around OpenRouter isolation, streaming SSE reliability, SQLite/sqlx schema behavior, frontend/backend contract drift, automated tests accidentally depending on provider quota, and completion claims before full verification.",
+  "verdict": "PASS",
+  "score": 0.0,
+  "questions": [],
+  "proposals": [
+    {
+      "title": "Mock-first provider boundary",
+      "summary": "Define a backend OpenRouter client trait or narrow module boundary early so endpoint tests can simulate success, 429, timeout, invalid response, and interrupted stream behavior without external calls.",
+      "files": [
+        "backend/src/openrouter.rs",
+        "backend/src/routes/chat.rs",
+        "backend/tests/openrouter_mock.rs"
+      ],
+      "owner_role": "backend"
+    },
+    {
+      "title": "Contract-first API payloads",
+      "summary": "Keep backend request/response DTOs and frontend zod schemas aligned around a small set of JSON shapes for conversations, messages, validation errors, and stream chunks before building broad UI behavior.",
+      "files": [
+        "backend/src/models.rs",
+        "backend/src/routes/conversations.rs",
+        "frontend/src/lib/api.ts",
+        "frontend/src/lib/schemas.ts"
+      ],
+      "owner_role": "frontend"
+    },
+    {
+      "title": "Verification gate for completion reports",
+      "summary": "Treat formatting, linting, builds, backend tests, frontend component tests, Playwright smoke, and tracked-secret scan as blocking checks before any CodeDungeon report claims COMPLETE.",
+      "files": [
+        "README.md",
+        ".codedungeon/task-planning/phase-4/planning-result.json"
+      ],
+      "owner_role": "qa"
+    }
+  ],
+  "risks": [
+    {
+      "title": "Automated tests could hit real OpenRouter",
+      "impact": "External calls can leak secrets, consume quota, fail nondeterministically, or violate the project rule forbidding provider calls from automated tests.",
+      "mitigation": "Inject a mockable OpenRouter client into handlers and assert in tests that mocked responses drive success, 429, timeout, invalid response, and interrupted stream paths.",
+      "severity": "P1"
+    },
+    {
+      "title": "Streaming SSE can desynchronize persisted state",
+      "impact": "If assistant chunks are persisted too early or not finalized after stream failure, users may see duplicate, partial, or missing assistant messages after reload.",
+      "mitigation": "Persist the user message before provider streaming, buffer assistant content until completion, mark interrupted streams as structured errors, and add tests for cancellation and provider failure.",
+      "severity": "P1"
+    },
+    {
+      "title": "OpenRouter error handling can crash or expose provider internals",
+      "impact": "Unhandled 429, timeout, malformed JSON, or network interruption can panic the Axum service or return raw provider errors to the browser.",
+      "mitigation": "Map provider failures to typed application errors with stable JSON/SSE error payloads and sanitized tracing fields; cover each mapping with mocked backend tests.",
+      "severity": "P1"
+    },
+    {
+      "title": "Frontend may bypass backend for model calls",
+      "impact": "A direct browser request to OpenRouter would expose OPENROUTER_API_KEY or break local operation because secrets are server-only.",
+      "mitigation": "Keep all model calls behind backend endpoints, expose only NEXT_PUBLIC_API_BASE_URL to the frontend, and scan tracked frontend files for OPENROUTER_API_KEY usage before completion.",
+      "severity": "P1"
+    },
+    {
+      "title": "SQLite/sqlx setup may require unavailable offline metadata",
+      "impact": "Using compile-time sqlx macros without prepared metadata can make worker builds fail in clean environments or CI.",
+      "mitigation": "Prefer runtime-checked sqlx query APIs for this fixture or include a clear sqlx prepare workflow; verify with cargo check and cargo test from a clean checkout.",
+      "severity": "P2"
+    },
+    {
+      "title": "Next.js 15 and React test stack compatibility",
+      "impact": "Component tests can become brittle if app-router components, server/client boundaries, Tailwind setup, or testing-library configuration are inconsistent.",
+      "mitigation": "Keep interactive chat components as explicit client components, isolate API code behind testable hooks/modules, and add focused Vitest component tests before Playwright smoke.",
+      "severity": "P2"
+    },
+    {
+      "title": "CORS and local URL defaults can block the smoke path",
+      "impact": "The frontend smoke test can fail even when backend logic works if FRONTEND_ORIGIN, BACKEND_HOST, BACKEND_PORT, or NEXT_PUBLIC_API_BASE_URL defaults disagree.",
+      "mitigation": "Centralize backend config defaults, document exact run commands, and have Playwright use the same local API base URL expected by the frontend.",
+      "severity": "P2"
+    },
+    {
+      "title": "Generated artifacts may be accidentally tracked",
+      "impact": "SQLite databases, frontend build outputs, Playwright reports, node_modules, or Rust target files can pollute the PR and obscure review.",
+      "mitigation": "Keep existing .gitignore coverage, add any missing generated paths before running tools, and check git status before final handoff.",
+      "severity": "P2"
+    },
+    {
+      "title": "Completion may be overstated before review and verification",
+      "impact": "The final report would violate project rules if it claims COMPLETE without passing verification and receiving approved review status.",
+      "mitigation": "Require explicit verification results and an APPROVED review state before final CodeDungeon reporting uses COMPLETE; otherwise report remaining blockers.",
+      "severity": "P1"
+    }
+  ],
+  "claims": [
+    {
+      "kind": "constraint",
+      "title": "Provider calls stay server-side",
+      "summary": "OpenRouter access must be implemented only in the Rust backend and configured through OPENROUTER_API_KEY and OPENROUTER_MODEL."
+    },
+    {
+      "kind": "constraint",
+      "title": "Secrets remain local",
+      "summary": ".env remains ignored, .env.example contains placeholders/defaults only, and tracked files must be scanned for OpenRouter keys before completion."
+    },
+    {
+      "kind": "risk",
+      "title": "Streaming is the highest-complexity path",
+      "summary": "SSE combines provider IO, persistence ordering, cancellation, frontend incremental rendering, and error handling, so it should receive the most focused tests."
+    },
+    {
+      "kind": "decision",
+      "title": "No material user ambiguity",
+      "summary": "The prompt and approved project rules are sufficient for planning; no human gate is needed at this phase."
+    }
+  ],
+  "project_rules": {
+    "status": "approved",
+    "digest": "54eae19e90a1b403912baee95e0294f1ff7bdf2aff6afb8d07af8d0744677dfe",
+    "read": "yes"
+  }
+}

@@ -1,0 +1,123 @@
+{
+  "role": "qa_planner",
+  "agent_name": "qa-sentinel",
+  "provider": "codex",
+  "model": "gpt-5",
+  "session_id": "phase-4",
+  "confidence": 0.86,
+  "summary": "QA plan for gpt-copy-v8 covering backend Axum/sqlx behavior, mocked OpenRouter streaming and failure modes, frontend component coverage, Playwright smoke coverage, verification commands, and secret/artifact hygiene required by the approved project rules.",
+  "verdict": "PASS",
+  "score": 0.86,
+  "questions": [],
+  "proposals": [
+    {
+      "title": "Backend API and persistence tests",
+      "summary": "Add Rust tests around conversation creation/list/detail, message persistence order, invalid IDs, SQLite test isolation, and config defaults including OPENROUTER_MODEL fallback. Use temporary databases and run sqlx migrations in test setup.",
+      "files": [
+        "backend/tests/api_conversations.rs",
+        "backend/tests/support/mod.rs",
+        "backend/src/config.rs",
+        "backend/migrations/"
+      ],
+      "owner_role": "qa"
+    },
+    {
+      "title": "Mocked OpenRouter SSE and provider failure tests",
+      "summary": "Exercise streaming chat with a local mock provider so automated tests never call OpenRouter. Cover normal token streaming, 429, timeout, invalid JSON/chunk response, upstream disconnect, and client interruption without backend crashes or partial database corruption.",
+      "files": [
+        "backend/tests/streaming_chat.rs",
+        "backend/src/openrouter.rs",
+        "backend/src/routes/chat.rs",
+        "backend/tests/support/mock_openrouter.rs"
+      ],
+      "owner_role": "qa"
+    },
+    {
+      "title": "Frontend component test coverage",
+      "summary": "Use component tests for chat layout, conversation sidebar, composer disabled/loading states, message rendering, error banners, and EventSource/SSE client state transitions using mocks instead of network calls.",
+      "files": [
+        "frontend/src/components/chat/*.test.tsx",
+        "frontend/src/app/page.test.tsx",
+        "frontend/src/lib/api.test.ts",
+        "frontend/vitest.config.ts",
+        "frontend/test/setup.ts"
+      ],
+      "owner_role": "qa"
+    },
+    {
+      "title": "Playwright smoke test",
+      "summary": "Add one end-to-end smoke path that starts backend and frontend with local test configuration, opens the app, creates or selects a conversation, sends a prompt through mocked provider behavior, observes streamed assistant text, and confirms reload persistence.",
+      "files": [
+        "frontend/e2e/chat-smoke.spec.ts",
+        "frontend/playwright.config.ts",
+        "backend/tests/support/",
+        "frontend/package.json"
+      ],
+      "owner_role": "qa"
+    },
+    {
+      "title": "Repository verification and hygiene checks",
+      "summary": "Document and run the final verification set: Rust fmt/clippy/test, frontend lint/test/build, Playwright smoke, git ignored artifact check, and tracked-file secret scan for OpenRouter keys before any completion report.",
+      "files": [
+        "README.md",
+        ".gitignore",
+        ".env.example",
+        ".codedungeon/task-planning/phase-4/"
+      ],
+      "owner_role": "qa"
+    }
+  ],
+  "risks": [
+    {
+      "title": "SSE tests can become timing-flaky",
+      "impact": "Streaming assertions may pass locally but fail under slower CI or worker environments.",
+      "mitigation": "Assert ordered semantic events and terminal states with bounded retries instead of fixed sleeps; keep mock provider deterministic.",
+      "severity": "P1"
+    },
+    {
+      "title": "Automated tests may accidentally hit OpenRouter",
+      "impact": "Tests could consume quota, leak local configuration assumptions, or fail when network/provider quota is unavailable.",
+      "mitigation": "Make provider base URL injectable, force tests to use a local mock server, and fail tests when OPENROUTER_API_KEY would be used.",
+      "severity": "P1"
+    },
+    {
+      "title": "SQLite state leakage between tests",
+      "impact": "Conversation/message tests may become order-dependent and hide persistence defects.",
+      "mitigation": "Use per-test temporary database files or isolated in-memory pools with migrations applied per test fixture.",
+      "severity": "P2"
+    },
+    {
+      "title": "Frontend and backend contract drift",
+      "impact": "Component tests can pass while the real app fails due to mismatched API payloads or SSE event names.",
+      "mitigation": "Add at least one Playwright smoke path against the real Axum backend and keep shared API fixtures aligned with backend response shapes.",
+      "severity": "P1"
+    }
+  ],
+  "claims": [
+    {
+      "kind": "decision",
+      "title": "Provider tests must be mocked",
+      "summary": "All OpenRouter success and failure QA should use a local mock because project rules forbid external provider calls from automated tests unless explicitly required."
+    },
+    {
+      "kind": "decision",
+      "title": "Verification must span both apps",
+      "summary": "Completion should require backend formatting, linting, build/tests, frontend lint/tests/build, Playwright smoke coverage, and tracked-file secret scanning."
+    },
+    {
+      "kind": "risk",
+      "title": "Streaming is the highest-risk behavior",
+      "summary": "SSE combines provider chunk parsing, client disconnects, persistence side effects, and UI state, so it needs backend integration tests plus one browser smoke test."
+    },
+    {
+      "kind": "constraint",
+      "title": "Project rules preserved",
+      "summary": "The QA plan keeps OpenRouter calls server-side, treats OPENROUTER_API_KEY as a local secret, keeps .env ignored, and requires placeholder-only .env.example content."
+    }
+  ],
+  "project_rules": {
+    "status": "approved",
+    "digest": "54eae19e90a1b403912baee95e0294f1ff7bdf2aff6afb8d07af8d0744677dfe",
+    "read": "yes"
+  }
+}

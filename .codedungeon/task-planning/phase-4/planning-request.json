@@ -1,0 +1,20 @@
+{
+  "session_id": "phase-4",
+  "run_id": 1,
+  "prompt": "Create a ChatGPT-style application named gpt-copy-v8. Monorepo with backend/ (Rust 2024 + Axum + SQLite + sqlx) and frontend/ (Next.js 15 App Router + TypeScript + Tailwind). Use OpenRouter for model calls. Include conversations, messages, streaming SSE, component tests, Playwright smoke test.",
+  "mode": "full",
+  "project_context": "# Project Rules Compact\n\nPROJECT_RULES_STATUS: APPROVED\nPROJECT_RULES_SOURCE: .codedungeon/project-rules.md\n\n- MUST preserve the ChatGPT-style app scope for gpt-copy-v8.\n- MUST use a Rust 2024 Axum backend in backend/.\n- MUST use a Next.js App Router TypeScript frontend in frontend/.\n- MUST keep OpenRouter calls server-side.\n- MUST configure OpenRouter with OPENROUTER_API_KEY and OPENROUTER_MODEL.\n- MUST default OPENROUTER_MODEL to nvidia/nemotron-3-super-120b-a12b:free when no local override exists.\n- MUST NOT commit secrets, tokens, provider keys, or machine-local private configuration.\n- MUST keep .env ignored and .env.example placeholder-only.\n- MUST keep Project Rules status, digest, and read flags in plans, tasks, reviews, handoffs, and final reports.\n- VERIFY backend changes with available Rust formatting, linting, build, and tests.\n- VERIFY frontend changes with available linting, tests, build, and Playwright smoke coverage.\n- VERIFY no tracked file contains an OpenRouter key before reporting completion.\n- VERIFY final CodeDungeon reports only claim completion when Verification is PASS and review is APPROVED.\n- MUST treat OPENROUTER_API_KEY as a local secret only.\n- MUST handle OpenRouter 429, timeout, invalid response, and interrupted stream errors without crashing.\n- MUST test provider failures with mocks instead of relying on real OpenRouter quota.\n- MUST avoid committing generated databases, build outputs, node_modules, or test reports.\n- MUST read .codedungeon/project-rules.compact.md before planning, implementing, reviewing, or reporting.\n- MUST keep CodeDungeon workflows PR-centered and leave final merge to the user.\n- MUST not call external providers from automated tests unless explicitly required by the user.\n",
+  "output_dir": ".codedungeon\\task-planning\\phase-4",
+  "roles": [
+    "planner_architect",
+    "domain_planner",
+    "qa_planner",
+    "risk_planner"
+  ],
+  "human_gate_policy": "material_ambiguity",
+  "project_rules": {
+    "status": "approved",
+    "digest": "54eae19e90a1b403912baee95e0294f1ff7bdf2aff6afb8d07af8d0744677dfe",
+    "read": "yes"
+  }
+}

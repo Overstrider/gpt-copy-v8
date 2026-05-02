@@ -1,0 +1,36 @@
+{
+  "id": "TASK-010",
+  "repo": "frontend",
+  "kind": "test",
+  "title": "Playwright mocked streaming smoke",
+  "objective": "Add one Playwright smoke test that sends a message through the UI and verifies streamed assistant text using mocked backend API routes.",
+  "context": [
+    "No real backend or OpenRouter call is required for this smoke test.",
+    "Route mocks must be registered before page.goto.",
+    "The test should assert empty state, sending, assistant bubble visibility, concatenated streamed text, and URL query state."
+  ],
+  "write_scope": [
+    "frontend/e2e/send-message.spec.ts",
+    "frontend/playwright.config.ts"
+  ],
+  "depends_on": [
+    "TASK-008"
+  ],
+  "wave": 5,
+  "parallel_group": "frontend-qa",
+  "owner_role": "qa",
+  "acceptance_criteria": [
+    "Playwright intercepts all /api/** routes before navigation.",
+    "The smoke test fills the Message textarea, clicks Send, and sees an assistant bubble containing Hello world.",
+    "The URL contains ?c=\u003cmock-conversation-id\u003e after conversation creation.",
+    "The spec fails on page errors or browser console errors."
+  ],
+  "verification_commands": [
+    "npm --prefix frontend run test:e2e:install",
+    "npm --prefix frontend run test:e2e"
+  ],
+  "risk_notes": [
+    "Playwright browser install can be slow or unavailable in constrained environments; report that explicitly if blocked.",
+    "Mock URL patterns must match NEXT_PUBLIC_API_BASE_URL default behavior."
+  ]
+}
