@@ -2,8 +2,6 @@
 
 ChatGPT-style application — Rust backend (Axum + SQLite) with a Next.js frontend, streamed responses via OpenRouter.
 
-> **Status:** Implementation in progress. Sections marked *(provisional)* will be finalized once all tasks complete.
-
 ## Overview
 
 gpt-copy-v8 is a full-stack chat application that mirrors the ChatGPT UX:
@@ -29,6 +27,9 @@ cd gpt-copy-v8
 # 2. Copy environment file and fill in your key
 cp .env.example .env
 # Edit .env — set OPENROUTER_API_KEY to your real key
+
+# 3. Install frontend dependencies
+cd frontend && npm install && cd ..
 ```
 
 ## Env
@@ -37,11 +38,11 @@ cp .env.example .env
 |---|---|---|
 | `OPENROUTER_API_KEY` | *(required)* | OpenRouter API key |
 | `OPENROUTER_MODEL` | `nvidia/nemotron-3-super-120b-a12b:free` | Model slug |
-| `DATABASE_URL` | `sqlite://backend/gpt-copy-v8.sqlite` | SQLite path |
+| `DATABASE_URL` | `sqlite://gpt-copy-v8.sqlite?mode=rwc` | SQLite path (relative to backend/) |
 | `BACKEND_HOST` | `127.0.0.1` | Backend bind address |
 | `BACKEND_PORT` | `8080` | Backend bind port |
 | `FRONTEND_ORIGIN` | `http://localhost:3000` | CORS allowed origin |
-| `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8080` | Frontend → backend URL |
+| `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8080` | Frontend → backend URL (set in `frontend/.env.local`) |
 
 Never commit real API keys. `.env` is git-ignored.
 
@@ -49,41 +50,69 @@ Never commit real API keys. `.env` is git-ignored.
 
 ```bash
 cd backend
-cargo run
+cargo run --bin server
 # Server starts at http://127.0.0.1:8080
+# Health check: curl http://localhost:8080/health
 ```
-
-*(provisional — confirmed once TASK-002 completes)*
 
 ## Run Frontend
 
 ```bash
 cd frontend
-npm install
 npm run dev
 # App at http://localhost:3000
 ```
 
-*(provisional — confirmed once TASK-008 completes)*
+Run both simultaneously — backend first, then frontend in a second terminal.
 
 ## Tests
 
-```bash
-# Backend unit + integration tests
-cd backend && cargo test
+### Backend
 
-# Frontend E2E (requires running backend + frontend)
-cd frontend && npx playwright test
+```bash
+cd backend
+
+# Format check
+cargo fmt --check
+
+# Lint
+cargo clippy -- -D warnings
+
+# Unit + integration tests (uses mock OpenRouter client, temp SQLite DB)
+cargo test
 ```
 
-*(provisional — confirmed once QA tasks complete)*
+### Frontend
+
+```bash
+cd frontend
+
+# Component tests (Vitest)
+npm test
+
+# Playwright E2E smoke (mocks all API routes — no backend needed)
+npm run test:e2e:install   # first time only
+npm run test:e2e
+```
+
+### Build
+
+```bash
+# Backend
+cd backend && cargo build --release
+
+# Frontend
+cd frontend && npm run build
+```
 
 ## Troubleshooting
 
-- **`OPENROUTER_API_KEY` missing:** Copy `.env.example` to `.env` and set a valid key.
-- **Port conflict:** Change `BACKEND_PORT` / `FRONTEND_PORT` in `.env`.
-- **SQLite locked:** Stop any other backend process; the DB is single-writer.
-- **Playwright install:** Run `npx playwright install --with-deps` before E2E tests.
+- **`OPENROUTER_API_KEY` missing:** Copy `.env.example` to `.env` and set a valid key. Backend exits on startup without it.
+- **Port conflict:** Change `BACKEND_PORT` in `.env` and update `NEXT_PUBLIC_API_BASE_URL` in `frontend/.env.local`.
+- **SQLite locked:** Only one backend process can write at a time. Stop any other running backend instance.
+- **Playwright install:** Run `npm run test:e2e:install` inside `frontend/` before first E2E run.
+- **CORS error in browser:** Ensure `FRONTEND_ORIGIN` in `.env` matches the actual origin of the running frontend (default `http://localhost:3000`).
+- **Streaming blocked:** Check that the browser isn't behind a proxy that buffers SSE. The frontend uses `credentials: 'omit'` to avoid preflight issues.
 
 ---
 
