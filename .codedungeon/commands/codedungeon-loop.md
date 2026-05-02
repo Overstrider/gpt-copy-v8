@@ -1,0 +1,338 @@
+# Loldinis Loop
+
+## Project Rules Gate
+
+Before planning, executing, reviewing, or reporting completion, run `codedungeon rules status` and read `.codedungeon/project-rules.compact.md` when present. If rules are missing, warn the user and recommend `/codedungeon --rules` or `$codedungeon --rules`; do not silently invent project rules. If status is `draft` or `stale`, block `--full` and `--lite` unless the user explicitly says to proceed with stale rules; `--oneshot` may continue with a warning for small direct fixes.
+
+Every plan, task file, review report, phase handoff, and final report must include this Project Rules envelope:
+
+```text
+PROJECT_RULES_STATUS: approved|missing|draft|stale
+PROJECT_RULES_DIGEST: <rules_digest from codedungeon rules status or none>
+PROJECT_RULES_READ: yes|no
+```
+
+Claude permission invariant: every Claude CLI session or subagent spawn controlled by codedungeon MUST include `--dangerously-skip-permissions`. This is mandatory and has no opt-out.
+
+Deterministic completion gates:
+- Use only `./.claude/bin/codedungeon` for CodeDungeon commands.
+- Do not write review reports manually.
+- Do not write final reports manually.
+- Run standalone review with `./.claude/bin/codedungeon code-review --url <PR URL> --project-context .codedungeon/project-rules.compact.md --task-context "$TASK_DIR/PLAN.md" --out .codedungeon/code-review --post`.
+- Run verification with `./.claude/bin/codedungeon qa run --phase 6 --fresh`.
+- Run `./.claude/bin/codedungeon run finalize`; READY_FOR_USER_REVIEW can only come from `codedungeon run finalize`.
+
+Automated task execution loop. Reads a PLAN.md, executes each task via language-specialized specialists (plan + exec + review), runs `/code-review` (adversarial fanout) and loops on CHANGES_REQUESTED.
+
+**Deterministic mechanics (branch guard, plan parsing, PR creation, fix-task generation) delegated to `codedungeon`. Only LLM work (specialist plan/exec/review + persona fanout) is inline.**
+
+## Protected-branch rule (ABSOLUTE)
+
+**NEVER commit, push, or write code on `main`, `master`, `develop`, `dev`, `staging`, `production`, `release`.**
+
+Every `git commit` / `git push` preceded by:
+
+```bash
+codedungeon git guard --repo "$REPO_DIR"
+```
+
+Exits 1 if protected → loop STOPs.
+
+## Non-negotiable steps (verified by orchestrator)
+
+1. **Phase C (specialist review)** — every task, every iteration. Verified: `review.md` exists with APPROVED verdict for every `[x]` task.
+2. **Main Loop Step 5 (adversarial review)** — after all tasks complete. Verified: `codedungeon git verify` returns `adv_review_count ≥ 1`.
+3. **PR creation** — before review. Verified: `codedungeon git pr` returns a number.
+4. **Final PR report** — every terminal path returns the standard CodeDungeon PR Report.
+
+Skipping any makes the run invalid.
+
+Verification Gate is also non-negotiable. `APPROVED does not replace verification`: specialist review and adversarial review are judgment gates; they do not prove the code compiles, tests pass, or container images build. Before marking a task `[x]`, before commit/push, and before emitting `Status READY_FOR_USER_REVIEW`, run concrete build/check/test commands and keep the commands plus results for the final report.
+
+```bash
+codedungeon qa detect-framework --path "$REPO_DIR" > /tmp/codedungeon-fw.json
+VERIFY_CMD=$(jq -r '.run_cmd // empty' /tmp/codedungeon-fw.json)
+```
+
+Minimum Verification Gate commands:
+
+- Rust: run `cargo check` and `cargo test`. `cargo check` is mandatory even if `cargo test` is also run.
+- Go: run `go test ./...`.
+- Python: run `pytest` or `python -m pytest`.
+- Node/TypeScript/Next.js: run the detected test command, or the closest package script for test/build/typecheck.
+- Unknown framework: inspect the repo manifest and run the nearest compile/check/test command. If none is identifiable, return `Status BLOCKED`.
+
+Image build gate:
+
+```bash
+if git diff --name-only main...HEAD | grep -E '(^|/)(Dockerfile|Containerfile)$|\.containerfile$' >/dev/null; then
+  podman build -t codedungeon-verify "$REPO_DIR"
+fi
+```
+
+If `Dockerfile` or `Containerfile` changed and `podman build` cannot run because the tool or daemon is unavailable, return `Status BLOCKED` with the blocker in `Verification`. Do not silently downgrade to review-only completion. For `Status READY_FOR_USER_REVIEW`, the final report must include `Verification: PASS - <commands and result summary>`. If verification is missing, skipped, failed, or blocked, return `Status BLOCKED` and include `Verification: <blocker>`.
+
+## Parameters
+
+- `$ARGUMENTS` — path to task dir (e.g. `.codedungeon/tasks/my-feature/backend/`).
+
+## Subagent spawn retry rule
+
+- Wait ≥60s before concluding a spawn failed.
+- Retry up to 2× (backoff 1s → 2s → 4s).
+- Verify tool access with a trivial Bash before claiming unavailability.
+- **Never** degrade to inline execution without exhausting retries.
+
+## Prerequisites
+
+- `PLAN.md` + task files in `$ARGUMENTS` (generated by `spider-architect-task`).
+- Specialist agents exist (`{lang}-specialist`).
+- `gh` CLI authenticated.
+- Git remote `origin` configured.
+- `codedungeon` bootstrapped at project root.
+
+If `gh auth status`, git repo validation, or `git remote get-url origin` fails, stop before editing and return `Status BLOCKED` in the standard CodeDungeon PR Report.
+
+---
+
+## Architecture
+
+```
+MAIN LOOP (≤9 adversarial cycles — HARD STOP)
+  │
+  ├─ Branch setup
+  │
+  ├─ ORCHESTRATOR LOOP — dispatches all pending [ ] tasks
+  │    │
+  │    └─ WORKER LOOP (one task): specialist plan → general-purpose exec → specialist review
+  │       (max 9 per-task iterations — warn at 5, hard stop at 9)
+  │
+  ├─ All tasks done → commit + push + PR
+  │
+  └─ /code-review (adversarial Opus 4.7 fanout)
+       ├─ APPROVED → DONE
+       └─ CHANGES_REQUESTED → `codedungeon plan append-fix-tasks` → re-enter orchestrator
+```
+
+## Agent dispatch table
+
+| Lang   | Reviewer (review mode)                      | Executor              |
+|--------|---------------------------------------------|-----------------------|
+| rust   | skill `tome-rust`         | general-purpose       |
+| nextjs | skill `tome-nextjs`      | general-purpose       |
+| kotlin | skill `tome-kotlin`           | general-purpose       |
+| go     | agent `sentinel-reviewer-go`                | general-purpose       |
+| elixir | agent `sentinel-reviewer-elixir`            | general-purpose       |
+| cpp    | agent `sentinel-reviewer-cpp`               | general-purpose       |
+| python | agent `sentinel-reviewer-python`            | general-purpose       |
+
+**Spawn prompt (skills — rust/nextjs/kotlin):**
+
+```
+{CAVEMAN_ULTRA_BLOCK}
+You are {skill_name} in MODE=review.
+Load: Skill(name="{skill_name}")
+Task file: {TASK_DIR}/{task_id}.md
+Code diff: git diff {base}...HEAD
+Write review to {TASK_DIR}/{task_id}-review.md.
+Final line MUST be: REVIEW_COMPLETE: {task_id}
+max_thinking_tokens: 2000
+model: sonnet
+```
+
+Same shape for legacy reviewers (`subagent_type={lang}-reviewer`), which read `_companions/{lang}-review-checklist.md` on demand.
+
+---
+
+## Execution
+
+### Step 0: Validate input
+
+```bash
+TASK_DIR="$ARGUMENTS"
+[ -f "$TASK_DIR/PLAN.md" ] || { echo '{"error":"PLAN.md missing"}'; exit 2; }
+
+META=$(codedungeon plan meta "$TASK_DIR/PLAN.md")
+FEATURE_NAME=$(echo "$META" | jq -r .feature)
+REPO_NAME=$(echo "$META"    | jq -r .repo)
+LANG=$(echo "$META"         | jq -r .lang)
+
+[ -z "$LANG" ] && { echo '{"error":"PLAN.md missing # Lang: header"}'; exit 2; }
+```
+
+Resolve `REPO_DIR` via `codedungeon repo resolve "$REPO_NAME"`.
+
+Map `LANG` → reviewer per dispatch table (`REVIEWER_SPAWN`).
+
+Branch: `BRANCH_NAME=feat/$(slug "$FEATURE_NAME")`.
+
+Preflight before implementation:
+
+```bash
+cd "$REPO_DIR"
+git rev-parse --is-inside-work-tree >/dev/null
+git remote get-url origin >/dev/null
+gh auth status
+```
+
+Any failure here is a hard stop before edits.
+
+### Main Loop Step 1: Branch setup
+
+```bash
+# Ensure git + not on protected + on feat branch.
+cd "$REPO_DIR"
+git rev-parse --is-inside-work-tree > /dev/null || git init
+CURRENT=$(git branch --show-current)
+case "$CURRENT" in
+  "$BRANCH_NAME") ;;  # resume
+  main|master|develop|dev|staging|production|release)
+    git pull && git checkout -b "$BRANCH_NAME" ;;
+  *)
+    # different non-protected branch — check for open PR
+    HAS_PR=$(codedungeon git pr --repo "$REPO_DIR" --branch "$CURRENT" | jq -r '.pr_raw // empty')
+    [ -n "$HAS_PR" ] && { echo "open PR on $CURRENT; merge first"; exit 2; }
+    git checkout main && git pull && git checkout -b "$BRANCH_NAME"
+    ;;
+esac
+codedungeon git guard --repo "$REPO_DIR"   # verify NOT on protected
+```
+
+### Main Loop Step 2: Orchestrator loop (dispatches tasks)
+
+For each pending `[ ]` task in PLAN.md (tracked via `codedungeon plan meta`), spawn the **WORKER LOOP**:
+
+- Phase A: **specialist plan** — `{lang}-specialist` MODE=plan writes `{task_id}-plan.md`.
+- Phase B: **executor** — `general-purpose` agent implements the task; commits intermediate.
+- Phase C: **specialist review** — `{lang}-specialist` MODE=review writes `{task_id}-review.md` with APPROVED/CHANGES_REQUESTED. If CHANGES_REQUESTED, re-enter Phase B (max 9 iterations per task; warn at 5, hard stop at 9).
+
+Mark task `[x]` only when Phase C approves and the Verification Gate passes. Mark `[!]` if blocked.
+
+### Main Loop Step 3: Commit + push
+
+```bash
+codedungeon git guard --repo "$REPO_DIR"
+cd "$REPO_DIR"
+git add -A && git diff --cached --quiet || \
+  git commit -m "feat: $FEATURE_NAME — all tasks completed"
+git push -u origin "$BRANCH_NAME"
+```
+
+### Main Loop Step 4: Create PR (if absent)
+
+```bash
+PR_NUM=$(codedungeon git pr --repo "$REPO_DIR" --branch "$BRANCH_NAME" | jq -r '.pr_raw | fromjson | .number // empty')
+if [ -z "$PR_NUM" ]; then
+  # Build PR body from MASTER.md + PLAN.md
+  BODY=$(cat <<BODY
+## Feature Context
+$(grep -m1 '^# ' "$TASK_DIR/../MASTER.md" 2>/dev/null)
+
+## Tasks completed
+$(grep '\[x\]' "$TASK_DIR/PLAN.md")
+
+## Tasks blocked
+$(grep '\[!\]' "$TASK_DIR/PLAN.md" || echo 'None')
+
+---
+*Automated implementation via codedungeon-loop*
+BODY
+)
+  cd "$REPO_DIR" && gh pr create --title "feat: $FEATURE_NAME" --body "$BODY"
+  PR_NUM=$(codedungeon git pr --repo "$REPO_DIR" --branch "$BRANCH_NAME" | jq -r '.pr_raw | fromjson | .number // empty')
+fi
+```
+
+If `gh pr create` fails or `PR_NUM` remains empty → STOP (no silent skip) and return `Status BLOCKED` in the standard CodeDungeon PR Report.
+
+### Main Loop Step 5: Adversarial review cycle
+
+```bash
+REVIEW_CYCLE=0
+MAX_REVIEW_CYCLES=9
+
+while : ; do
+  if [ "$REVIEW_CYCLE" -lt 3 ]; then
+    REVIEW_MODE=full
+  else
+    REVIEW_MODE=reduced
+  fi
+  # Run /code-review (posts comment to PR, writes review.json + review.md)
+  # Cycles 1-3: full adversarial mode.
+  # Cycles 4-9: reduced adversarial mode. Keep all personas, but use fast
+  # model/effort and review only fixes/new diff since the previous cycle.
+  /code-review "$REPO_DIR"
+  # Outputs adversarial review in $REPO_DIR/.codedungeon/reviews/adv-review/review.json.
+
+  ADV_REVIEW_COUNT=$(gh pr view "$PR_NUM" --comments --json comments -q '[.comments[] | select(.body | test("Claude Adversarial Code Review"))] | length')
+  [ "$ADV_REVIEW_COUNT" = "0" ] && { echo '{"verdict":"REVIEW_NOT_POSTED"}'; exit 2; }
+
+  VERDICT=$(jq -r .verdict "$REPO_DIR/.codedungeon/reviews/adv-review/review.json")
+  case "$VERDICT" in
+    APPROVED)
+      echo "PR APPROVED after $REVIEW_CYCLE cycles."
+      break
+      ;;
+    CHANGES_REQUESTED)
+      REVIEW_CYCLE=$((REVIEW_CYCLE + 1))
+      if [ "$REVIEW_CYCLE" -ge "$MAX_REVIEW_CYCLES" ]; then
+        echo '{"verdict":"MAX_CYCLES_REACHED"}'
+        exit 3   # caller escalates to human
+      fi
+      # Generate fix tasks from actionable findings.
+      codedungeon plan append-fix-tasks \
+        --from "$REPO_DIR/.codedungeon/reviews/adv-review/review.json" \
+        --to "$TASK_DIR/PLAN.md" \
+        --cycle "$REVIEW_CYCLE"
+      # Re-enter orchestrator loop (Step 2) to process new [ ] tasks.
+      ;;
+  esac
+done
+```
+
+Agents respond to `actionable==true` findings only (design_decisions are disclosed but non-blocking).
+
+---
+
+## Required final report
+
+Emit this exact format at every terminal path. `Status READY_FOR_USER_REVIEW` is valid only when the PR exists and remains open, the branch is pushed, `codedungeon review post` recorded the adversarial review comment, the final verdict is `APPROVED`, and `Verification: PASS` records concrete build/check/test commands. Do not merge; the user performs final review and merge. `APPROVED does not replace verification`.
+
+```
++------------------------------------------------+
+| CodeDungeon PR Report                          |
++------------------------------------------------+
+| Status        READY_FOR_USER_REVIEW|BLOCKED|MAX_CYCLES_REACHED
+| Workflow      codedungeon-loop
+| PR            #{number} {url}
+| Branch        {branch}
+| Review        APPROVED|CHANGES_REQUESTED|MAX_CYCLES_REACHED|NOT_RUN
+| Cycles        {N}/9 | last mode: full|reduced|not_run
++------------------------------------------------+
+
+Summary
+{1-line task/result summary}
+
+Review
+- Adversarial comments: {N}
+- Last review marker: Claude Adversarial Code Review|none
+- Remaining findings: {none or short list/count}
+
+Work Done
+- Tasks: {N}/{total}
+- Changed files: {short summary or none}
+- Verification: PASS - {commands/results} OR BLOCKED - {blocker}
+
+PR
+{url or "not created"}
+
+Next
+{none or exact next human/agent action}
+```
+
+## Failure modes
+
+- Protected branch detected mid-run → HARD STOP.
+- `gh pr create` fails → HARD STOP.
+- 9 adversarial cycles without APPROVED → `MAX_CYCLES_REACHED`, exit 3, human triage.
+- Worker loop exhausts 9 iterations on a single task → mark `[!]` blocked, continue.

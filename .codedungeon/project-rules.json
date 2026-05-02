@@ -1,0 +1,14 @@
+{
+  "status": "approved",
+  "rules_path": ".codedungeon/project-rules.md",
+  "compact_path": ".codedungeon/project-rules.compact.md",
+  "source_digest": "d0851d2301f91ded47b04d4d54ce0e140889220d69c14114b38d176df25c1e85",
+  "rules_digest": "54eae19e90a1b403912baee95e0294f1ff7bdf2aff6afb8d07af8d0744677dfe",
+  "approved_at": "2026-05-02T21:46:51Z",
+  "approved_by": "claude-e2e-v8",
+  "sources": [
+    ".env.example",
+    "CLAUDE.md",
+    "README.md"
+  ]
+}
