@@ -4,6 +4,14 @@ const CONV_ID = "33333333-3333-3333-3333-333333333333";
 const ASSISTANT_ID = "44444444-4444-4444-4444-444444444444";
 
 test("send message renders streamed assistant bubble", async ({ page }) => {
+  const consoleErrors: string[] = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "error") consoleErrors.push(msg.text());
+  });
+  page.on("pageerror", (err) => {
+    consoleErrors.push(err.message);
+  });
+
   let createdOnce = false;
 
   await page.route("**/api/conversations", async (route) => {
@@ -51,4 +59,7 @@ test("send message renders streamed assistant bubble", async ({ page }) => {
 
   await expect(page.getByTestId("bubble-assistant")).toBeVisible();
   await expect(page.getByTestId("bubble-assistant")).toContainText("Hello world");
+  await expect(page).toHaveURL(new RegExp(`\\?c=${CONV_ID}`));
+
+  expect(consoleErrors, `console errors: ${consoleErrors.join("\n")}`).toEqual([]);
 });

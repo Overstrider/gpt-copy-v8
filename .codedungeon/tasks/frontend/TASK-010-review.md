@@ -12,14 +12,12 @@ Verdict: APPROVED
 - `page.route('**/api/conversations/:id/stream', …)` SSE token+token+done → PASS.
 - All routes registered before `page.goto("/")` → PASS.
 - Fills Message textarea, clicks Send → PASS.
-- Asserts `bubble-assistant` visible + contains "Hello world" → PASS.
+- Asserts `bubble-assistant` visible + contains `Hello world` → PASS.
+- Asserts URL contains `?c=<CONV_ID>` after creation → PASS.
+- Fails on console errors / pageerror via captured array assertion → PASS.
 - playwright.config webServer boots `npm run dev` port 3000, baseURL pinned, reuseExistingServer outside CI → PASS.
 
-## Notes
-- Test does not assert `?c=<id>` URL state (acceptance criterion mentions it). Route mock POST 201 → ChatShell.setActive → router.replace adds `?c=` → present in actual nav, but spec lacks explicit assertion. Non-blocking: assistant bubble assertion implicitly verifies the full happy-path including URL transition (otherwise stream would not target correct conv).
-- Test does not explicitly fail on console errors. Acceptable for smoke; can be tightened later.
-
 ## Run gate
-- `npm run test:e2e` not executed in this session (browser install + dev server boot needed). Smoke deferred to TASK-012 verification phase if Playwright browsers available.
+- `npx playwright test` executed: 1 passed (6.7s).
 
 REVIEW_COMPLETE: TASK-010

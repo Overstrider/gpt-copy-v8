@@ -63,7 +63,12 @@ export function useStreamMessage(): UseStreamMessageResult {
             let data = "";
             for (const line of raw.split("\n")) {
               if (line.startsWith("event:")) evt = line.slice(6).trim();
-              else if (line.startsWith("data:")) data += line.slice(5).trim();
+              else if (line.startsWith("data:")) {
+                // Per SSE spec: strip a single optional leading space after `data:`,
+                // preserve all other whitespace (trailing spaces are significant tokens).
+                const rest = line.slice(5);
+                data += rest.startsWith(" ") ? rest.slice(1) : rest;
+              }
             }
             if (evt === "token") setBuffer((b) => b + data);
             else if (evt === "done") {
