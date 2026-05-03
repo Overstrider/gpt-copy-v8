@@ -83,6 +83,11 @@ pub fn validate_content(c: &str) -> Result<(), AppError> {
             "content must not be empty".to_string(),
         ));
     }
+    if c.len() > 64_000 {
+        return Err(AppError::Validation(
+            "content must be at most 64000 bytes".to_string(),
+        ));
+    }
     if c.chars().count() > 32_000 {
         return Err(AppError::Validation(
             "content must be at most 32000 characters".to_string(),

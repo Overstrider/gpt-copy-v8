@@ -8,7 +8,7 @@ use axum::{
 };
 use futures_util::{Stream, StreamExt};
 use serde_json::json;
-use sqlx::{Row, SqlitePool};
+use sqlx::{Row, Sqlite, SqlitePool, Transaction};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use uuid::Uuid;
@@ -22,6 +22,7 @@ use crate::{
 };
 
 const MAX_STREAMED_ASSISTANT_BYTES: usize = 128 * 1024;
+const MAX_HISTORY_MESSAGES: i64 = 200;
 
 pub async fn list(
     State(state): State<AppState>,
@@ -30,7 +31,10 @@ pub async fn list(
     ensure_conversation_exists(&state.pool, id).await?;
 
     let rows = sqlx::query(
-        "SELECT id, conversation_id, role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY created_at ASC, id ASC",
+        "SELECT id, conversation_id, role, content, created_at
+         FROM messages
+         WHERE conversation_id = ?
+         ORDER BY created_at ASC, CASE role WHEN 'user' THEN 0 ELSE 1 END, id ASC",
     )
     .bind(id.to_string())
     .fetch_all(&state.pool)
@@ -64,8 +68,12 @@ pub async fn send(
 
     let user_id = Uuid::new_v4();
     let user_now = now_iso();
-    insert_message(
-        &state.pool,
+    let assistant_id = Uuid::new_v4();
+    let assistant_now = now_iso();
+
+    let mut tx = state.pool.begin().await?;
+    insert_message_tx(
+        &mut tx,
         user_id,
         conv_id,
         Role::User,
@@ -73,11 +81,8 @@ pub async fn send(
         &user_now,
     )
     .await?;
-
-    let assistant_id = Uuid::new_v4();
-    let assistant_now = now_iso();
-    insert_message(
-        &state.pool,
+    insert_message_tx(
+        &mut tx,
         assistant_id,
         conv_id,
         Role::Assistant,
@@ -85,8 +90,8 @@ pub async fn send(
         &assistant_now,
     )
     .await?;
-
-    touch_conversation(&state.pool, conv_id, &assistant_now).await?;
+    touch_conversation_tx(&mut tx, conv_id, &assistant_now).await?;
+    tx.commit().await?;
 
     let user_message = Message {
         id: user_id,
@@ -140,6 +145,7 @@ pub async fn stream(
     tokio::spawn(async move {
         let mut accumulated = String::new();
         let mut errored = false;
+        let mut client_gone = false;
 
         while let Some(item) = upstream.next().await {
             match item {
@@ -159,6 +165,7 @@ pub async fn stream(
                     accumulated.push_str(&token);
                     let event = Event::default().event("token").data(token);
                     if tx.send(Ok(event)).await.is_err() {
+                        client_gone = true;
                         break;
                     }
                 }
@@ -179,9 +186,16 @@ pub async fn stream(
 
         let assistant_id = Uuid::new_v4();
         let assistant_now = now_iso();
-        if !errored && !accumulated.is_empty() {
-            if let Err(e) = insert_message(
-                &pool,
+        if !errored && !client_gone && !accumulated.is_empty() {
+            let mut tx_db = match pool.begin().await {
+                Ok(tx) => tx,
+                Err(e) => {
+                    tracing::error!(error = ?e, "begin stream persistence transaction failed");
+                    return;
+                }
+            };
+            if let Err(e) = insert_message_tx(
+                &mut tx_db,
                 user_id,
                 conv_id,
                 Role::User,
@@ -193,8 +207,8 @@ pub async fn stream(
                 tracing::error!(error = ?e, "persist user msg failed");
                 return;
             }
-            if let Err(e) = insert_message(
-                &pool,
+            if let Err(e) = insert_message_tx(
+                &mut tx_db,
                 assistant_id,
                 conv_id,
                 Role::Assistant,
@@ -204,11 +218,19 @@ pub async fn stream(
             .await
             {
                 tracing::error!(error = ?e, "persist assistant msg failed");
+                return;
             }
-            let _ = touch_conversation(&pool, conv_id, &assistant_now).await;
+            if let Err(e) = touch_conversation_tx(&mut tx_db, conv_id, &assistant_now).await {
+                tracing::error!(error = ?e, "touch conversation failed");
+                return;
+            }
+            if let Err(e) = tx_db.commit().await {
+                tracing::error!(error = ?e, "commit stream persistence failed");
+                return;
+            }
         }
 
-        if !errored {
+        if !errored && !client_gone {
             let payload = json!({
                 "message_id": assistant_id.to_string(),
             })
@@ -240,8 +262,8 @@ fn row_to_message(row: &sqlx::sqlite::SqliteRow) -> Result<Message, AppError> {
     })
 }
 
-async fn insert_message(
-    pool: &SqlitePool,
+async fn insert_message_tx(
+    tx: &mut Transaction<'_, Sqlite>,
     id: Uuid,
     conv_id: Uuid,
     role: Role,
@@ -256,16 +278,23 @@ async fn insert_message(
     .bind(role.as_str())
     .bind(content)
     .bind(created_at)
-    .execute(pool)
+    .execute(&mut **tx)
     .await?;
     Ok(())
 }
 
 async fn load_history(pool: &SqlitePool, conv_id: Uuid) -> Result<Vec<ChatMessage>, AppError> {
     let rows = sqlx::query(
-        "SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC, id ASC",
+        "SELECT role, content FROM (
+            SELECT role, content, created_at, id
+            FROM messages
+            WHERE conversation_id = ?
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+        ) ORDER BY created_at ASC, CASE role WHEN 'user' THEN 0 ELSE 1 END, id ASC",
     )
     .bind(conv_id.to_string())
+    .bind(MAX_HISTORY_MESSAGES)
     .fetch_all(pool)
     .await?;
 
@@ -278,11 +307,15 @@ async fn load_history(pool: &SqlitePool, conv_id: Uuid) -> Result<Vec<ChatMessag
     Ok(history)
 }
 
-async fn touch_conversation(pool: &SqlitePool, conv_id: Uuid, now: &str) -> Result<(), AppError> {
+async fn touch_conversation_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    conv_id: Uuid,
+    now: &str,
+) -> Result<(), AppError> {
     sqlx::query("UPDATE conversations SET updated_at = ? WHERE id = ?")
         .bind(now)
         .bind(conv_id.to_string())
-        .execute(pool)
+        .execute(&mut **tx)
         .await?;
     Ok(())
 }

@@ -71,6 +71,23 @@ async fn send_rejects_too_long_content() {
 }
 
 #[tokio::test]
+async fn send_rejects_oversized_byte_content() {
+    let app = common::test_app_with_mock(MockOpenRouterClient::with_chat("hi back")).await;
+    let conv_id = create_conversation(&app, "c").await;
+    let too_large = "🙂".repeat(16_001);
+    let res = app
+        .oneshot(post_json(
+            &format!("/api/conversations/{conv_id}/messages"),
+            json!({ "content": too_large }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let body = common::read_json(res).await;
+    assert_eq!(body["error"]["code"], "VALIDATION");
+}
+
+#[tokio::test]
 async fn send_returns_user_and_assistant() {
     let app = common::test_app_with_mock(MockOpenRouterClient::with_chat("Hello back")).await;
     let conv_id = create_conversation(&app, "c").await;

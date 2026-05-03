@@ -4,6 +4,7 @@ pub mod messages;
 
 use std::{
     collections::HashMap,
+    net::SocketAddr,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -11,7 +12,7 @@ use std::{
 use axum::{
     Json, Router,
     body::Body,
-    extract::State,
+    extract::{ConnectInfo, State},
     http::{HeaderValue, Method, Request, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -24,6 +25,8 @@ use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use uuid::Uuid;
 
 use crate::{error::AppError, state::AppState};
+
+const MAX_RATE_LIMIT_BUCKETS: usize = 10_000;
 
 pub fn router(state: AppState) -> Router {
     let origin: HeaderValue = state
@@ -39,21 +42,26 @@ pub fn router(state: AppState) -> Router {
         .allow_origin(origin)
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
         .allow_headers([header::CONTENT_TYPE]);
-    let limiter = Arc::new(RateLimiter::new(60, Duration::from_secs(60)));
 
-    Router::new()
-        .route("/health", get(health::get_health))
+    let api_router = Router::new()
         .route(
-            "/api/conversations",
+            "/conversations",
             get(conversations::list).post(conversations::create),
         )
         .route(
-            "/api/conversations/:id/messages",
+            "/conversations/:id/messages",
             get(messages::list).post(messages::send),
         )
-        .route("/api/conversations/:id/stream", post(messages::stream))
+        .route("/conversations/:id/stream", post(messages::stream))
+        .layer(middleware::from_fn_with_state(
+            Arc::new(RateLimiter::new(60, Duration::from_secs(60))),
+            rate_limit,
+        ));
+
+    Router::new()
+        .route("/health", get(health::get_health))
+        .nest("/api", api_router)
         .with_state(state)
-        .layer(middleware::from_fn_with_state(limiter, rate_limit))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
 }
@@ -81,6 +89,11 @@ impl RateLimiter {
     async fn allow(&self, key: String) -> bool {
         let now = Instant::now();
         let mut buckets = self.buckets.lock().await;
+        buckets.retain(|_, bucket| now.duration_since(bucket.start) < self.window * 2);
+        if buckets.len() >= MAX_RATE_LIMIT_BUCKETS && !buckets.contains_key(&key) {
+            tracing::warn!("rate limiter bucket cap reached; clearing stale bucket map");
+            buckets.clear();
+        }
         let bucket = buckets.entry(key).or_insert(RateBucket {
             start: now,
             count: 0,
@@ -119,14 +132,10 @@ async fn rate_limit(
 }
 
 fn rate_limit_key(req: &Request<Body>) -> String {
-    req.headers()
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.split(',').next())
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .unwrap_or("local")
-        .to_string()
+    req.extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|addr| addr.0.ip().to_string())
+        .unwrap_or_else(|| "local".to_string())
 }
 
 pub(crate) async fn ensure_conversation_exists(
