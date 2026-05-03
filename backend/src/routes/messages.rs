@@ -66,6 +66,9 @@ pub async fn send(
         .openrouter
         .chat(&state.config.openrouter_model, history)
         .await?;
+    if assistant_text.trim().is_empty() || assistant_text.len() > MAX_STREAMED_ASSISTANT_BYTES {
+        return Err(AppError::Upstream("Provider unavailable".to_string()));
+    }
 
     let user_id = Uuid::new_v4();
     let user_now = now_iso();
@@ -153,14 +156,7 @@ pub async fn stream(
                 Ok(token) => {
                     if accumulated.len() + token.len() > MAX_STREAMED_ASSISTANT_BYTES {
                         errored = true;
-                        let payload = json!({
-                            "code": "UPSTREAM",
-                            "message": "Provider unavailable",
-                        })
-                        .to_string();
-                        let _ = tx
-                            .send(Ok(Event::default().event("error").data(payload)))
-                            .await;
+                        send_stream_error(&tx, "UPSTREAM", "Provider unavailable").await;
                         break;
                     }
                     accumulated.push_str(&token);

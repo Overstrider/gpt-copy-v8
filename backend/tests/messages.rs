@@ -154,6 +154,56 @@ async fn send_502_when_upstream_fails() {
 }
 
 #[tokio::test]
+async fn send_empty_assistant_response_is_rejected_without_persistence() {
+    let app = common::test_app_with_mock(MockOpenRouterClient::with_chat("")).await;
+    let conv_id = create_conversation(&app, "c").await;
+    let res = app
+        .clone()
+        .oneshot(post_json(
+            &format!("/api/conversations/{conv_id}/messages"),
+            json!({ "content": "hi" }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_GATEWAY);
+    let body = common::read_json(res).await;
+    assert_eq!(body["error"]["code"], "UPSTREAM");
+
+    let res = app
+        .oneshot(get(&format!("/api/conversations/{conv_id}/messages")))
+        .await
+        .unwrap();
+    let body = common::read_json(res).await;
+    assert_eq!(body.as_array().unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn send_oversized_assistant_response_is_rejected_without_persistence() {
+    let app =
+        common::test_app_with_mock(MockOpenRouterClient::with_chat("x".repeat(128 * 1024 + 1)))
+            .await;
+    let conv_id = create_conversation(&app, "c").await;
+    let res = app
+        .clone()
+        .oneshot(post_json(
+            &format!("/api/conversations/{conv_id}/messages"),
+            json!({ "content": "hi" }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_GATEWAY);
+    let body = common::read_json(res).await;
+    assert_eq!(body["error"]["code"], "UPSTREAM");
+
+    let res = app
+        .oneshot(get(&format!("/api/conversations/{conv_id}/messages")))
+        .await
+        .unwrap();
+    let body = common::read_json(res).await;
+    assert_eq!(body.as_array().unwrap().len(), 0);
+}
+
+#[tokio::test]
 async fn list_messages_returns_in_order() {
     let app = common::test_app_with_mock(MockOpenRouterClient::with_chat("a1")).await;
     let conv_id = create_conversation(&app, "c").await;

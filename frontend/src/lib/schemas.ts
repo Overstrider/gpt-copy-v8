@@ -27,7 +27,7 @@ export const SendMessageResponseSchema = z.object({
 
 export const ErrorBodySchema = z.object({
   error: z.object({
-    code: z.enum(["VALIDATION", "NOT_FOUND", "UPSTREAM", "INTERNAL"]),
+    code: z.enum(["VALIDATION", "NOT_FOUND", "UPSTREAM", "INTERNAL", "RATE_LIMITED"]),
     message: z.string(),
   }),
 });
