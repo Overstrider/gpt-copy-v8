@@ -69,7 +69,7 @@ pub fn validate_title(t: &str) -> Result<(), AppError> {
     if trimmed.is_empty() {
         return Err(AppError::Validation("title must not be empty".to_string()));
     }
-    if t.chars().count() > 200 {
+    if trimmed.chars().count() > 200 {
         return Err(AppError::Validation(
             "title must be at most 200 characters".to_string(),
         ));

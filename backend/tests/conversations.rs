@@ -64,6 +64,20 @@ async fn create_rejects_too_long_title() {
 }
 
 #[tokio::test]
+async fn create_trims_title_before_validating_and_storing() {
+    let app = common::test_app().await;
+    let title = "a".repeat(200);
+    let padded = format!(" {title} ");
+    let res = app
+        .oneshot(post_json("/api/conversations", json!({ "title": padded })))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let body = common::read_json(res).await;
+    assert_eq!(body["title"], title);
+}
+
+#[tokio::test]
 async fn create_persists_and_list_returns() {
     let app = common::test_app().await;
 

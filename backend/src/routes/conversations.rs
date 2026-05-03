@@ -35,7 +35,8 @@ pub async fn create(
     State(state): State<AppState>,
     Json(body): Json<CreateConversationReq>,
 ) -> Result<(StatusCode, Json<Conversation>), AppError> {
-    validate_title(&body.title)?;
+    let title = body.title.trim().to_string();
+    validate_title(&title)?;
 
     let id = Uuid::new_v4();
     let now = now_iso();
@@ -44,7 +45,7 @@ pub async fn create(
         "INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
     )
     .bind(id.to_string())
-    .bind(&body.title)
+    .bind(&title)
     .bind(&now)
     .bind(&now)
     .execute(&state.pool)
@@ -54,7 +55,7 @@ pub async fn create(
         StatusCode::CREATED,
         Json(Conversation {
             id,
-            title: body.title,
+            title,
             created_at: now.clone(),
             updated_at: now,
         }),

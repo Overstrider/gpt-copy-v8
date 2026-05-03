@@ -22,6 +22,8 @@ export function ChatWindow({ conversationId, onConversationCreated }: ChatWindow
   // Reset stream only when the user navigates between distinct existing conversations.
   // Skip the very first transition from null → newly-created id so the in-flight
   // stream that triggered the URL update is preserved through render.
+  // stream.reset is intentionally excluded from deps: it is stable and adding it
+  // can reset an in-flight stream during the null → id transition.
   useEffect(() => {
     const prev = lastConvRef.current;
     if (prev !== null && prev !== conversationId) {

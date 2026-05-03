@@ -77,7 +77,7 @@ export function useStreamMessage(): UseStreamMessageResult {
               qc.invalidateQueries({ queryKey: ["conversations"] });
             } else if (evt === "error") {
               setStatus("error");
-              setError(data || "stream error");
+              setError(parseStreamError(data));
             }
           }
         }
@@ -91,4 +91,17 @@ export function useStreamMessage(): UseStreamMessageResult {
   );
 
   return { status, buffer, error, send, reset };
+}
+
+function parseStreamError(data: string): string {
+  if (!data) return "stream error";
+  try {
+    const parsed = JSON.parse(data) as { message?: unknown };
+    if (typeof parsed.message === "string" && parsed.message.trim()) {
+      return parsed.message;
+    }
+  } catch {
+    // Non-JSON SSE errors are already human-readable.
+  }
+  return data;
 }
