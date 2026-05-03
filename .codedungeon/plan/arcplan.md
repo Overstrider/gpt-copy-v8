@@ -212,7 +212,7 @@ Bootstrap Rust 2024 Axum API in `backend/`. Persists conversations + messages in
 5. `OpenRouterClient` trait: `async fn chat(&self, model: &str, messages: Vec<ChatMessage>) -> Result<String, OpenRouterError>` + `async fn stream(&self, model: &str, messages: Vec<ChatMessage>) -> Result<BoxStream<'static, Result<String, OpenRouterError>>, OpenRouterError>`. `HttpOpenRouterClient` posts to `https://openrouter.ai/api/v1/chat/completions` with `Authorization: Bearer <key>`. Streaming uses SSE `data: {...}` parsing of `choices[0].delta.content`. Stops on `data: [DONE]`.
 6. CORS layer allows `FRONTEND_ORIGIN` only, methods GET/POST/OPTIONS, headers content-type, credentials false.
 7. Tracing: `tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env().add_directive("info".parse()?))`.
-8. SSE handler uses `axum::response::sse::Sse` with `KeepAlive`. Each event: `event: token` + `data: <text>`. Final event `event: done` + `data: ok`. On error: `event: error` + `data: <message>`. Persist assistant message after stream completes (or on disconnect with partial content).
+8. SSE handler uses `axum::response::sse::Sse` with `KeepAlive`. Each event: `event: token` + `data: <text>`. Final event `event: done` + `data: ok`. On error: `event: error` + `data: { "code": str, "message": str }`. Persist assistant message after stream completes. On client disconnect, discard the in-flight user/assistant turn so the user can retry cleanly.
 9. Validation: title ≤ 200 chars non-empty. Message content ≤ 32_000 chars non-empty. Conversation id valid UUID v4.
 10. Tests use `build_app(state)` + `tower::ServiceExt::oneshot`. SQLite DB → tempfile per test. `MockOpenRouterClient` returns deterministic strings + injectable errors.
 11. Use `sqlx::query` (runtime) not `query!` macro → avoid offline metadata complexity. Prime Directive: simplicity.
@@ -351,7 +351,7 @@ Bootstrap Next.js 15 App Router app in `frontend/` w/ TS + Tailwind. ChatGPT-sty
     ...
     event: done         data: { "message_id": uuid }
     event: error        data: { "code": str, "message": str }   // on failure
-  Behavior backend persists user msg first → opens OpenRouter stream → relays delta tokens → on completion persists assistant msg → emits done. On client disconnect → persist partial assistant msg.
+  Behavior backend opens OpenRouter stream → relays delta tokens → on completion persists user msg + assistant msg → emits done. On client disconnect → discard in-flight turn; do not persist partial assistant content.
   ```
 
 - name: ErrorBody

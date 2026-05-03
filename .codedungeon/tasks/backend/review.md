@@ -49,9 +49,9 @@ backend/tests/conversations.rs → 5 tests: empty list, reject empty, reject 201
 backend/src/routes/messages.rs → list (sorted ASC), send (sync), stream (SSE) → matches §contracts.
 list → ensure_conversation_exists → 404 if missing → matches.
 send → validate_content → ensure_conv → insert user → load_history → openrouter.chat → insert assistant → touch_conversation updated_at → 201 SendMessageRes.
-stream → spawn tokio task w/ mpsc::channel(32) → relay tokens → on stream end persist accumulated assistant msg + emit done with message_id → matches §requirements.8.
+stream → spawn tokio task w/ mpsc::channel(32) → relay tokens → on stream end persist user + accumulated assistant msg and emit done with message_id → matches §requirements.8.
 On upstream err → emit event "error" + payload { code: "UPSTREAM", message } → no panic.
-On client disconnect (tx send err) → break loop → still attempts to persist partial accumulated → matches §requirements.8 "persist on disconnect with partial".
+On client disconnect (tx send err) → break loop → discard in-flight user/assistant turn so retry can start from clean state.
 backend/tests/messages.rs → 8 tests: validation 400, 404, 502 upstream, persists+lists, stream tokens+done. All pass.
 
 ## TASK-011 Verification Gate

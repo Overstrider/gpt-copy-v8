@@ -528,13 +528,13 @@ Bootstrap Rust 2024 Axum API at `backend/`. SQLite persistence via sqlx runtime 
       Json(body): Json<CreateMessageReq>,
   ) -> Result<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>, AppError>
   ```
-  - same prelude: validate, ensure conv exists, persist user msg, build history.
+  - same prelude: validate, ensure conv exists, build history.
   - call `state.openrouter.stream(&model, history).await?` → upstream stream of token deltas.
   - inside async block via `async_stream::stream!` or hand-built unfolding:
     - for each token Ok(t): `accumulated.push_str(&t)`; yield `Ok(Event::default().event("token").data(t))`.
     - on Err(e): yield `Ok(Event::default().event("error").data(json!({ "code": "UPSTREAM", "message": e.to_string() }).to_string()))`; break.
-    - on stream end: persist assistant msg w/ accumulated content, update `conversations.updated_at`, yield `Ok(Event::default().event("done").data(json!({ "message_id": assistant_id }).to_string()))`.
-  - on client disconnect: detect via stream drop → flush partial `accumulated` to DB in `Drop` of an owned struct, OR use `tokio::spawn` with `select!` on the body stream; document choice: persist on each token chunk by using `tokio::sync::mpsc` + spawn task that consumes upstream → forwards to SSE channel + accumulates → on channel close (client disconnect or upstream end), flush partial. Simplest: spawn task that owns DB pool clone + accumulator; send `Event` via `mpsc::Sender`; receiver wraps into SSE stream.
+    - on stream end: persist user msg + assistant msg w/ accumulated content, update `conversations.updated_at`, yield `Ok(Event::default().event("done").data(json!({ "message_id": assistant_id }).to_string()))`.
+  - on client disconnect: detect `mpsc::Sender` close and return before DB persistence. Do not persist partial assistant content or the paired user message; this keeps retry semantics deterministic.
   - `Sse::new(stream).keep_alive(KeepAlive::default())`.
 - helper (private to `messages.rs` or `routes/mod.rs`):
   ```rust

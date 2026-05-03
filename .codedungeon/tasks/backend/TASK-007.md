@@ -18,6 +18,7 @@ Add message listing, synchronous send, and streaming send endpoints with persist
 - Depends on conversation persistence and OpenRouter client abstraction.
 - Message content must be non-empty and at most 32000 characters.
 - SSE should persist assistant output after completion and emit error events for upstream failures.
+- Client disconnects intentionally discard the in-flight user/assistant turn so the user can retry cleanly.
 
 ## Write Scope
 - backend/src/routes/messages.rs
@@ -31,6 +32,7 @@ Add message listing, synchronous send, and streaming send endpoints with persist
 - GET /api/conversations/:id/messages returns messages sorted created_at ASC and 404 for missing conversations.
 - POST /api/conversations/:id/messages persists user and assistant messages and returns both with 201.
 - POST /api/conversations/:id/stream emits token events, then done with assistant message id, and persists concatenated assistant content.
+- POST /api/conversations/:id/stream discards the in-flight turn on client disconnect instead of persisting partial assistant content.
 - Validation and upstream errors return structured JSON or SSE error events without panics.
 
 ## Verification Commands
@@ -38,6 +40,5 @@ Add message listing, synchronous send, and streaming send endpoints with persist
 - cargo test --manifest-path backend/Cargo.toml
 
 ## Risk Notes
-- Persisting partial content on disconnect is subtle; at minimum ensure no crash and deterministic completed-stream persistence.
+- Client disconnect handling is subtle; do not persist partial assistant content after the SSE channel closes. This preserves retry semantics and is covered by `stream_client_disconnect_discards_partial_turn`.
 - Backpressure and stream lifetime must not hold mutable DB transactions across token emission.
-

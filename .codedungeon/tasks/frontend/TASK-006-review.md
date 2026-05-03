@@ -21,6 +21,6 @@ Verdict: APPROVED
 - No OpenRouter calls from frontend → PASS.
 
 ## Minor
-- useStreamMessage on disconnect/abort does not persist partial buffer client-side → backend handles partial persist (per arcplan). Acceptable.
+- useStreamMessage on disconnect/abort does not persist partial buffer client-side → backend discards the interrupted in-flight turn (per arcplan). Acceptable.
 
 REVIEW_COMPLETE: TASK-006
