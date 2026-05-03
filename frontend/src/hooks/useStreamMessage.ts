@@ -84,6 +84,8 @@ export function useStreamMessage(): UseStreamMessageResult {
               terminated = true;
               setStatus("error");
               setError(parseStreamError(data));
+              qc.invalidateQueries({ queryKey: ["messages", conversationId] });
+              qc.invalidateQueries({ queryKey: ["conversations"] });
             } else if (evt && process.env.NODE_ENV !== "production") {
               console.warn(`Unhandled SSE event: ${evt}`);
             }

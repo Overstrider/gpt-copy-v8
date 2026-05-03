@@ -186,7 +186,7 @@ pub async fn stream(
 
         let assistant_id = Uuid::new_v4();
         let assistant_now = now_iso();
-        if errored || client_gone {
+        if errored {
             return;
         }
 
@@ -240,6 +240,10 @@ pub async fn stream(
         if let Err(e) = tx_db.commit().await {
             tracing::error!(error = ?e, "commit stream persistence failed");
             send_stream_error(&tx, "Provider unavailable").await;
+            return;
+        }
+
+        if client_gone {
             return;
         }
 

@@ -4,9 +4,12 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useStreamMessage } from "@/hooks/useStreamMessage";
 
-function withQuery(ui: React.ReactNode) {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function withQuery(ui: React.ReactNode, qc = testQueryClient()) {
   return <QueryClientProvider client={qc}>{ui}</QueryClientProvider>;
+}
+
+function testQueryClient() {
+  return new QueryClient({ defaultOptions: { queries: { retry: false } } });
 }
 
 function StreamHarness() {
@@ -85,6 +88,29 @@ describe("useStreamMessage", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("error").textContent).toBe("first\nsecond");
+    });
+  });
+
+  it("invalidates cached messages and conversations on stream error", async () => {
+    const qc = testQueryClient();
+    const invalidate = vi.spyOn(qc, "invalidateQueries");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        streamResponse(
+          'event: error\ndata: {"code":"UPSTREAM","message":"empty"}\n\n',
+        ),
+      ),
+    );
+
+    render(withQuery(<StreamHarness />, qc));
+    await userEvent.click(screen.getByRole("button", { name: "send" }));
+
+    await waitFor(() => {
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: ["messages", "conv-1"],
+      });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["conversations"] });
     });
   });
 });

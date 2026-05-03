@@ -160,3 +160,49 @@ pub(crate) async fn ensure_conversation_exists(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn rate_limiter_isolates_counts_per_key() {
+        let limiter = RateLimiter::new(1, Duration::from_secs(60));
+
+        assert!(limiter.allow("203.0.113.10".to_string()).await);
+        assert!(!limiter.allow("203.0.113.10".to_string()).await);
+        assert!(limiter.allow("203.0.113.11".to_string()).await);
+    }
+
+    #[tokio::test]
+    async fn rate_limiter_evicts_only_oldest_bucket_when_cap_is_reached() {
+        let limiter = RateLimiter::new(1, Duration::from_secs(60));
+
+        for idx in 0..MAX_RATE_LIMIT_BUCKETS {
+            assert!(limiter.allow(format!("client-{idx}")).await);
+        }
+        assert!(limiter.allow("new-client".to_string()).await);
+
+        let buckets = limiter.buckets.lock().await;
+        assert_eq!(buckets.len(), MAX_RATE_LIMIT_BUCKETS);
+        assert!(!buckets.contains_key("client-0"));
+        assert!(buckets.contains_key("new-client"));
+        assert!(buckets.contains_key("client-1"));
+    }
+
+    #[test]
+    fn rate_limit_key_uses_connect_info_peer_ip() {
+        let mut req = Request::new(Body::empty());
+        req.extensions_mut()
+            .insert(ConnectInfo(SocketAddr::from(([203, 0, 113, 7], 49152))));
+
+        assert_eq!(rate_limit_key(&req), "203.0.113.7");
+    }
+
+    #[test]
+    fn rate_limit_key_falls_back_to_local_without_connect_info() {
+        let req = Request::new(Body::empty());
+
+        assert_eq!(rate_limit_key(&req), "local");
+    }
+}
