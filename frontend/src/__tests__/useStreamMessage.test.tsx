@@ -1,0 +1,122 @@
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useStreamMessage } from "@/hooks/useStreamMessage";
+
+function withQuery(ui: React.ReactNode, qc = testQueryClient()) {
+  return <QueryClientProvider client={qc}>{ui}</QueryClientProvider>;
+}
+
+function testQueryClient() {
+  return new QueryClient({ defaultOptions: { queries: { retry: false } } });
+}
+
+function StreamHarness() {
+  const stream = useStreamMessage();
+  return (
+    <>
+      <button type="button" onClick={() => void stream.send("conv-1", "hello")}>
+        send
+      </button>
+      <div data-testid="status">{stream.status}</div>
+      <div data-testid="buffer">{stream.buffer}</div>
+      <div data-testid="error">{stream.error}</div>
+    </>
+  );
+}
+
+function streamResponse(body: string) {
+  return {
+    ok: true,
+    body: new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(body));
+        controller.close();
+      },
+    }),
+  } as Response;
+}
+
+describe("useStreamMessage", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("shows the message field from SSE error JSON", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        streamResponse(
+          'event: error\ndata: {"code":"UPSTREAM","message":"too many requests"}\n\n',
+        ),
+      ),
+    );
+
+    render(withQuery(<StreamHarness />));
+    await userEvent.click(screen.getByRole("button", { name: "send" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("error").textContent).toBe("too many requests");
+    });
+  });
+
+  it("marks the stream errored when the body closes without done or error", async () => {
+    const qc = testQueryClient();
+    const invalidate = vi.spyOn(qc, "invalidateQueries");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(streamResponse("")));
+
+    render(withQuery(<StreamHarness />, qc));
+    await userEvent.click(screen.getByRole("button", { name: "send" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("status").textContent).toBe("error");
+      expect(screen.getByTestId("error").textContent).toBe(
+        "connection closed unexpectedly",
+      );
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: ["messages", "conv-1"],
+      });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["conversations"] });
+    });
+  });
+
+  it("joins multi-line SSE data fields with a newline", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        streamResponse("event: error\ndata: first\ndata: second\n\n"),
+      ),
+    );
+
+    render(withQuery(<StreamHarness />));
+    await userEvent.click(screen.getByRole("button", { name: "send" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("error").textContent).toBe("first\nsecond");
+    });
+  });
+
+  it("invalidates cached messages and conversations on stream error", async () => {
+    const qc = testQueryClient();
+    const invalidate = vi.spyOn(qc, "invalidateQueries");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        streamResponse(
+          'event: error\ndata: {"code":"UPSTREAM","message":"empty"}\n\n',
+        ),
+      ),
+    );
+
+    render(withQuery(<StreamHarness />, qc));
+    await userEvent.click(screen.getByRole("button", { name: "send" }));
+
+    await waitFor(() => {
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: ["messages", "conv-1"],
+      });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["conversations"] });
+    });
+  });
+});

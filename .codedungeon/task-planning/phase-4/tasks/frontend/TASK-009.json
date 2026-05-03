@@ -1,0 +1,37 @@
+{
+  "id": "TASK-009",
+  "repo": "frontend",
+  "kind": "test",
+  "title": "Frontend component tests",
+  "objective": "Add focused Vitest and Testing Library coverage for MessageBubble, Composer, and Sidebar behavior.",
+  "context": [
+    "frontendqaplan.md defines exact test modules and expected cases.",
+    "Component tests should avoid real backend calls by seeding QueryClient or mocking the API wrapper."
+  ],
+  "write_scope": [
+    "frontend/src/__tests__/MessageBubble.test.tsx",
+    "frontend/src/__tests__/Composer.test.tsx",
+    "frontend/src/__tests__/Sidebar.test.tsx",
+    "frontend/vitest.config.ts",
+    "frontend/vitest.setup.ts"
+  ],
+  "depends_on": [
+    "TASK-008"
+  ],
+  "wave": 5,
+  "parallel_group": "frontend-qa",
+  "owner_role": "qa",
+  "acceptance_criteria": [
+    "MessageBubble tests cover user alignment, assistant markdown strong rendering, and streaming cursor.",
+    "Composer tests cover Enter send, Shift+Enter newline, disabled no-op, and empty-value disabled send.",
+    "Sidebar tests cover seeded conversation list, active aria-current, empty list, and New chat visibility.",
+    "All Vitest specs pass in jsdom."
+  ],
+  "verification_commands": [
+    "npm --prefix frontend run test"
+  ],
+  "risk_notes": [
+    "TanStack Query tests must use a fresh QueryClient per test to prevent shared cache leakage.",
+    "Use web-accessible queries where possible rather than brittle class-only selectors."
+  ]
+}

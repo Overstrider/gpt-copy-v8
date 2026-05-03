@@ -1,0 +1,38 @@
+{
+  "id": "TASK-004",
+  "repo": "backend",
+  "kind": "dev",
+  "title": "OpenRouter client abstraction",
+  "objective": "Implement the mockable OpenRouter client trait, HTTP client, streaming parser, error enum, and provider-focused tests.",
+  "context": [
+    "Project rules require OpenRouter calls to stay server-side and tests to avoid real provider calls.",
+    "OpenRouter failures for 429, timeout, invalid response, and interrupted streams must not crash the backend.",
+    "Handlers will depend on a trait object stored in AppState."
+  ],
+  "write_scope": [
+    "backend/src/openrouter.rs",
+    "backend/src/error.rs",
+    "backend/src/state.rs",
+    "backend/tests/openrouter_mock.rs",
+    "backend/tests/common/mod.rs"
+  ],
+  "depends_on": [
+    "TASK-002"
+  ],
+  "wave": 3,
+  "parallel_group": "backend-services",
+  "owner_role": "backend",
+  "acceptance_criteria": [
+    "OpenRouterClient exposes chat and stream methods that accept model and message history.",
+    "HttpOpenRouterClient sends bearer-authenticated requests to https://openrouter.ai/api/v1/chat/completions.",
+    "Streaming parser emits content deltas, skips empty deltas, and terminates on data: [DONE].",
+    "MockOpenRouterClient supports deterministic chat, deterministic token streams, and injectable failures."
+  ],
+  "verification_commands": [
+    "cargo test --manifest-path backend/Cargo.toml --test openrouter_mock"
+  ],
+  "risk_notes": [
+    "Do not log Authorization headers or key material.",
+    "Keep any configurable OpenRouter base URL test-only or non-secret."
+  ]
+}

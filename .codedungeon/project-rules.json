@@ -2,13 +2,20 @@
   "status": "approved",
   "rules_path": ".codedungeon/project-rules.md",
   "compact_path": ".codedungeon/project-rules.compact.md",
-  "source_digest": "d0851d2301f91ded47b04d4d54ce0e140889220d69c14114b38d176df25c1e85",
+  "source_digest": "9d4df4a9f85fecae1328c9d6f107ea9d56e2dfb9104f8f76124bc9897a21940e",
   "rules_digest": "54eae19e90a1b403912baee95e0294f1ff7bdf2aff6afb8d07af8d0744677dfe",
-  "approved_at": "2026-05-02T21:46:51Z",
-  "approved_by": "claude-e2e-v8",
+  "approved_at": "2026-05-02T23:42:27Z",
+  "approved_by": "loldi",
   "sources": [
     ".env.example",
     "CLAUDE.md",
-    "README.md"
+    "README.md",
+    "backend/Cargo.toml",
+    "backend/rust-toolchain.toml",
+    "frontend/next.config.ts",
+    "frontend/package.json",
+    "frontend/playwright.config.ts",
+    "frontend/tailwind.config.ts",
+    "frontend/vitest.config.ts"
   ]
 }

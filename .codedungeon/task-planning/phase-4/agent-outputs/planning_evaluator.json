@@ -1,0 +1,21 @@
+{
+  "role": "planning_evaluator",
+  "agent_name": "plan-eval",
+  "provider": "files",
+  "model": "stub",
+  "session_id": "phase-4",
+  "confidence": 0.90,
+  "summary": "Task graph evaluated. 13 tasks across backend, frontend, qa, root, and docs waves. All tasks have acceptance criteria, write scope, and verification commands. No material ambiguity detected. Approved for Phase 5 execution.",
+  "verdict": "PASS",
+  "score": 0.90,
+  "questions": [],
+  "needs_user_input": false,
+  "approved": true,
+  "evaluation": {
+    "task_count": 13,
+    "waves": [1, 2, 3, 4],
+    "completeness": "PASS",
+    "ambiguity": "NONE",
+    "gate_policy_result": "PROCEED"
+  }
+}

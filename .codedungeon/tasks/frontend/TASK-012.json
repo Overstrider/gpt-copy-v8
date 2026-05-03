@@ -1,0 +1,40 @@
+{
+  "id": "TASK-012",
+  "repo": "frontend",
+  "kind": "test",
+  "title": "Frontend full verification",
+  "objective": "Run and stabilize frontend install, lint, component tests, production build, and Playwright smoke after all frontend tasks land.",
+  "context": [
+    "This is the frontend verification gate required by project rules.",
+    "Playwright remains mocked and must not require the backend server or OpenRouter."
+  ],
+  "write_scope": [
+    "frontend/**"
+  ],
+  "depends_on": [
+    "TASK-009",
+    "TASK-010"
+  ],
+  "wave": 6,
+  "parallel_group": "verification",
+  "owner_role": "qa",
+  "acceptance_criteria": [
+    "npm install completes with package-lock.json generated if npm is the chosen package manager.",
+    "npm run lint passes.",
+    "npm run test passes.",
+    "npm run build passes with no TypeScript errors.",
+    "npm run test:e2e passes with mocked API routes."
+  ],
+  "verification_commands": [
+    "npm --prefix frontend install",
+    "npm --prefix frontend run lint",
+    "npm --prefix frontend run test",
+    "npm --prefix frontend run build",
+    "npm --prefix frontend run test:e2e:install",
+    "npm --prefix frontend run test:e2e"
+  ],
+  "risk_notes": [
+    "Do not commit frontend/node_modules, .next, test-results, or playwright-report.",
+    "Keep Playwright smoke deterministic and independent from local backend availability."
+  ]
+}

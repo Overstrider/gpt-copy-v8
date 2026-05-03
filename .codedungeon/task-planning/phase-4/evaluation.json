@@ -1,0 +1,22 @@
+{
+  "verdict": "PASS",
+  "score": 0.9,
+  "needs_user_input": false,
+  "summary": "Task graph evaluated. 13 tasks across backend, frontend, qa, root, and docs waves. All tasks have acceptance criteria, write scope, and verification commands. No material ambiguity detected. Approved for Phase 5 execution.",
+  "raw": {
+    "role": "planning_evaluator",
+    "agent_name": "plan-eval",
+    "provider": "files",
+    "model": "stub",
+    "session_id": "phase-4",
+    "verdict": "PASS",
+    "confidence": 0.9,
+    "score": 0.9,
+    "summary": "Task graph evaluated. 13 tasks across backend, frontend, qa, root, and docs waves. All tasks have acceptance criteria, write scope, and verification commands. No material ambiguity detected. Approved for Phase 5 execution.",
+    "project_rules": {
+      "status": "",
+      "digest": "",
+      "read": ""
+    }
+  }
+}

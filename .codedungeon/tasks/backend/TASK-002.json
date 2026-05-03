@@ -1,0 +1,48 @@
+{
+  "id": "TASK-002",
+  "repo": "backend",
+  "kind": "dev",
+  "title": "Backend foundation and persistence",
+  "objective": "Create the Rust 2024 Axum crate, configuration, shared state, error model, SQLite migration, database initializer, and health route.",
+  "context": [
+    "Use backendplan.md for exact dependency list and file responsibilities.",
+    "Use sqlx runtime queries rather than query! macros, with sqlx::migrate! for migrations.",
+    "Config defaults must match project rules and fail fast only on missing OPENROUTER_API_KEY at runtime startup."
+  ],
+  "write_scope": [
+    "backend/Cargo.toml",
+    "backend/rust-toolchain.toml",
+    "backend/migrations/0001_init.sql",
+    "backend/src/lib.rs",
+    "backend/src/main.rs",
+    "backend/src/config.rs",
+    "backend/src/error.rs",
+    "backend/src/state.rs",
+    "backend/src/db.rs",
+    "backend/src/models.rs",
+    "backend/src/routes/mod.rs",
+    "backend/src/routes/health.rs",
+    "backend/tests/common/mod.rs",
+    "backend/tests/health.rs"
+  ],
+  "depends_on": [
+    "TASK-001"
+  ],
+  "wave": 2,
+  "parallel_group": "backend-foundation",
+  "owner_role": "backend",
+  "acceptance_criteria": [
+    "backend/Cargo.toml declares edition = \"2024\" and crate name gpt_copy_v8_backend.",
+    "Migration creates conversations and messages tables with FK cascade and message conversation/date index.",
+    "GET /health returns JSON with status ok and version from CARGO_PKG_VERSION.",
+    "AppError maps validation, not found, upstream, database, and internal errors to structured JSON error bodies."
+  ],
+  "verification_commands": [
+    "cargo fmt --manifest-path backend/Cargo.toml --check",
+    "cargo test --manifest-path backend/Cargo.toml --test health"
+  ],
+  "risk_notes": [
+    "sqlx migration path must work when commands are run with --manifest-path from repo root.",
+    "Config tests should not require a real provider key."
+  ]
+}

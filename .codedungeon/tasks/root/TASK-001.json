@@ -1,0 +1,32 @@
+{
+  "id": "TASK-001",
+  "repo": "root",
+  "kind": "dev",
+  "title": "Root guardrails and environment placeholders",
+  "objective": "Prepare monorepo-level hygiene so workers can add backend and frontend files without committing secrets or generated artifacts.",
+  "context": [
+    "The repo currently has README.md, CLAUDE.md, .env.example, prompts/full-v8.txt, and CodeDungeon planning files.",
+    "Project rules require .env ignored, .env.example placeholder-only, and no generated databases, node_modules, build outputs, or test reports committed."
+  ],
+  "write_scope": [
+    ".gitignore",
+    ".env.example",
+    "README.md"
+  ],
+  "wave": 1,
+  "parallel_group": "root-foundation",
+  "owner_role": "docs",
+  "acceptance_criteria": [
+    ".gitignore ignores .env, backend/*.sqlite, backend/*.sqlite-*, frontend/node_modules, frontend/.next, frontend/test-results, frontend/playwright-report, target directories, and other local build outputs.",
+    ".env.example contains only placeholder values and defaults OPENROUTER_MODEL to nvidia/nemotron-3-super-120b-a12b:free.",
+    "README keeps gpt-copy-v8 scope and has setup/run/test sections that can be finalized after implementation."
+  ],
+  "verification_commands": [
+    "git status --short",
+    "Get-Content .env.example"
+  ],
+  "risk_notes": [
+    "Do not add local .env contents or real OpenRouter keys.",
+    "Keep README claims provisional until final verification tasks pass."
+  ]
+}

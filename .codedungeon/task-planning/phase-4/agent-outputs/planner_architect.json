@@ -1,0 +1,640 @@
+{
+  "role": "planner_architect",
+  "agent_name": "arch-plan",
+  "provider": "codex",
+  "model": "gpt-5",
+  "session_id": "phase-4",
+  "confidence": 0.88,
+  "summary": "Decomposed the fresh gpt-copy-v8 monorepo build into backend, frontend, QA, and documentation waves. The graph keeps OpenRouter calls server-side, uses SQLite/sqlx persistence behind Axum, builds the Next.js chat UI against the documented API contract, and gates completion on backend fmt/clippy/tests/build, frontend lint/tests/build/Playwright, and a tracked-secret scan.",
+  "verdict": "PASS",
+  "score": 0.88,
+  "questions": [],
+  "proposals": [
+    {
+      "title": "Backend Contract First",
+      "summary": "Implement the Rust 2024 Axum service around the agreed REST and SSE contract before frontend integration. Keep sqlx runtime queries, a migration-backed SQLite schema, structured JSON errors, and a trait-based OpenRouter client for mocked tests.",
+      "files": [
+        "backend/Cargo.toml",
+        "backend/rust-toolchain.toml",
+        "backend/migrations/0001_init.sql",
+        "backend/src/**",
+        "backend/tests/**"
+      ],
+      "owner_role": "backend"
+    },
+    {
+      "title": "Frontend Against Stable API Shapes",
+      "summary": "Bootstrap Next.js 15 App Router with TypeScript, Tailwind, zod schemas, TanStack Query, and native fetch streaming. Component workers should consume the shared frontend API layer rather than duplicating request parsing.",
+      "files": [
+        "frontend/package.json",
+        "frontend/src/lib/**",
+        "frontend/src/hooks/**",
+        "frontend/src/components/**",
+        "frontend/src/app/**"
+      ],
+      "owner_role": "frontend"
+    },
+    {
+      "title": "Mocked Streaming Verification",
+      "summary": "Verify provider and browser streaming paths without external OpenRouter calls. Backend tests use mock clients/mockito, while Playwright stubs all /api/** routes before page load.",
+      "files": [
+        "backend/tests/openrouter_mock.rs",
+        "backend/tests/messages.rs",
+        "frontend/e2e/send-message.spec.ts"
+      ],
+      "owner_role": "qa"
+    },
+    {
+      "title": "Completion Gate And Docs",
+      "summary": "Finish only after README setup instructions, placeholder-only env docs, ignored local artifacts, verification commands, and a tracked-file OpenRouter key scan are complete.",
+      "files": [
+        "README.md",
+        ".env.example",
+        ".gitignore"
+      ],
+      "owner_role": "docs"
+    }
+  ],
+  "risks": [
+    {
+      "title": "Secrets Or Real Provider Calls Enter Automation",
+      "impact": "A committed OpenRouter key or unmocked CI/test call would violate project rules and can burn quota or expose credentials.",
+      "mitigation": "Keep .env ignored, .env.example placeholder-only, build backend tests around MockOpenRouterClient/mockito, stub Playwright API routes, and run a tracked-file key scan before completion.",
+      "severity": "P1"
+    },
+    {
+      "title": "SSE Persistence Can Drift From Rendered Tokens",
+      "impact": "The frontend may show streamed assistant text that differs from the assistant message persisted by the backend after done or disconnect.",
+      "mitigation": "Backend stream tests must assert token event order and the persisted assistant content equals concatenated chunks. Frontend Playwright must assert concatenated token rendering from mocked SSE frames.",
+      "severity": "P1"
+    },
+    {
+      "title": "Next.js 15 Lint Tooling Mismatch",
+      "impact": "The chosen eslint script can fail if Next.js 15 tooling expects flat config instead of legacy .eslintrc behavior.",
+      "mitigation": "Frontend foundation worker should verify lint immediately after scaffold and adjust to the smallest Next-supported ESLint config while preserving strict TypeScript checks.",
+      "severity": "P2"
+    },
+    {
+      "title": "SQLite Runtime URL And Migration Paths",
+      "impact": "Running from different working directories can make DATABASE_URL or sqlx::migrate! paths fail unexpectedly.",
+      "mitigation": "Use manifest-relative migrations, document root and backend run commands, and test with tempfile sqlite URLs through backend/tests/common.",
+      "severity": "P2"
+    }
+  ],
+  "claims": [
+    {
+      "kind": "decision",
+      "title": "REST Plus SSE Contract",
+      "summary": "The backend owns GET /health, /api/conversations, /api/conversations/:id/messages, POST send, and POST stream endpoints. Streaming emits token, done, and error SSE events."
+    },
+    {
+      "kind": "decision",
+      "title": "No Client-Side Provider Access",
+      "summary": "The frontend only talks to the local backend API. OPENROUTER_API_KEY is read by backend configuration and is never exposed through NEXT_PUBLIC variables."
+    },
+    {
+      "kind": "constraint",
+      "title": "Project Rules Must Propagate",
+      "summary": "Plans, tasks, reviews, handoffs, and final reports must include approved project rules status, digest 54eae19e90a1b403912baee95e0294f1ff7bdf2aff6afb8d07af8d0744677dfe, and read=yes."
+    },
+    {
+      "kind": "risk",
+      "title": "Provider Failure Handling Is Required Behavior",
+      "summary": "OpenRouter 429, timeout, invalid response, and interrupted stream paths are not optional edge cases; they must return structured errors or SSE error events without crashing."
+    }
+  ],
+  "project_rules": {
+    "status": "approved",
+    "digest": "54eae19e90a1b403912baee95e0294f1ff7bdf2aff6afb8d07af8d0744677dfe",
+    "read": "yes"
+  },
+  "task_graph": {
+    "version": 1,
+    "tasks": [
+      {
+        "id": "TASK-001",
+        "repo": "root",
+        "kind": "dev",
+        "title": "Root guardrails and environment placeholders",
+        "objective": "Prepare monorepo-level hygiene so workers can add backend and frontend files without committing secrets or generated artifacts.",
+        "context": [
+          "The repo currently has README.md, CLAUDE.md, .env.example, prompts/full-v8.txt, and CodeDungeon planning files.",
+          "Project rules require .env ignored, .env.example placeholder-only, and no generated databases, node_modules, build outputs, or test reports committed."
+        ],
+        "write_scope": [
+          ".gitignore",
+          ".env.example",
+          "README.md"
+        ],
+        "depends_on": [],
+        "wave": 1,
+        "parallel_group": "root-foundation",
+        "owner_role": "docs",
+        "acceptance_criteria": [
+          ".gitignore ignores .env, backend/*.sqlite, backend/*.sqlite-*, frontend/node_modules, frontend/.next, frontend/test-results, frontend/playwright-report, target directories, and other local build outputs.",
+          ".env.example contains only placeholder values and defaults OPENROUTER_MODEL to nvidia/nemotron-3-super-120b-a12b:free.",
+          "README keeps gpt-copy-v8 scope and has setup/run/test sections that can be finalized after implementation."
+        ],
+        "verification_commands": [
+          "git status --short",
+          "Get-Content .env.example"
+        ],
+        "risk_notes": [
+          "Do not add local .env contents or real OpenRouter keys.",
+          "Keep README claims provisional until final verification tasks pass."
+        ]
+      },
+      {
+        "id": "TASK-002",
+        "repo": "backend",
+        "kind": "dev",
+        "title": "Backend foundation and persistence",
+        "objective": "Create the Rust 2024 Axum crate, configuration, shared state, error model, SQLite migration, database initializer, and health route.",
+        "context": [
+          "Use backendplan.md for exact dependency list and file responsibilities.",
+          "Use sqlx runtime queries rather than query! macros, with sqlx::migrate! for migrations.",
+          "Config defaults must match project rules and fail fast only on missing OPENROUTER_API_KEY at runtime startup."
+        ],
+        "write_scope": [
+          "backend/Cargo.toml",
+          "backend/rust-toolchain.toml",
+          "backend/migrations/0001_init.sql",
+          "backend/src/lib.rs",
+          "backend/src/main.rs",
+          "backend/src/config.rs",
+          "backend/src/error.rs",
+          "backend/src/state.rs",
+          "backend/src/db.rs",
+          "backend/src/models.rs",
+          "backend/src/routes/mod.rs",
+          "backend/src/routes/health.rs",
+          "backend/tests/common/mod.rs",
+          "backend/tests/health.rs"
+        ],
+        "depends_on": [
+          "TASK-001"
+        ],
+        "wave": 2,
+        "parallel_group": "backend-foundation",
+        "owner_role": "backend",
+        "acceptance_criteria": [
+          "backend/Cargo.toml declares edition = \"2024\" and crate name gpt_copy_v8_backend.",
+          "Migration creates conversations and messages tables with FK cascade and message conversation/date index.",
+          "GET /health returns JSON with status ok and version from CARGO_PKG_VERSION.",
+          "AppError maps validation, not found, upstream, database, and internal errors to structured JSON error bodies."
+        ],
+        "verification_commands": [
+          "cargo fmt --manifest-path backend/Cargo.toml --check",
+          "cargo test --manifest-path backend/Cargo.toml --test health"
+        ],
+        "risk_notes": [
+          "sqlx migration path must work when commands are run with --manifest-path from repo root.",
+          "Config tests should not require a real provider key."
+        ]
+      },
+      {
+        "id": "TASK-003",
+        "repo": "frontend",
+        "kind": "dev",
+        "title": "Frontend foundation and toolchain",
+        "objective": "Create the Next.js 15 App Router TypeScript app scaffold with Tailwind, providers, Vitest, and Playwright configuration.",
+        "context": [
+          "Use frontendplan.md for exact package scripts, dependencies, config files, and App Router structure.",
+          "The first screen should be the usable chat shell, not a marketing page.",
+          "OpenRouter keys must not appear in frontend code or env variables."
+        ],
+        "write_scope": [
+          "frontend/package.json",
+          "frontend/tsconfig.json",
+          "frontend/next.config.ts",
+          "frontend/tailwind.config.ts",
+          "frontend/postcss.config.mjs",
+          "frontend/.eslintrc.json",
+          "frontend/vitest.config.ts",
+          "frontend/vitest.setup.ts",
+          "frontend/playwright.config.ts",
+          "frontend/src/app/globals.css",
+          "frontend/src/app/layout.tsx",
+          "frontend/src/app/providers.tsx",
+          "frontend/src/app/page.tsx"
+        ],
+        "depends_on": [
+          "TASK-001"
+        ],
+        "wave": 2,
+        "parallel_group": "frontend-foundation",
+        "owner_role": "frontend",
+        "acceptance_criteria": [
+          "frontend/package.json includes scripts for dev, build, lint, test, test:e2e, and test:e2e:install.",
+          "TypeScript is strict and uses @/* path alias to frontend/src/*.",
+          "Tailwind globals load successfully and the App Router layout mounts Providers.",
+          "Playwright webServer starts npm run dev on port 3000."
+        ],
+        "verification_commands": [
+          "npm --prefix frontend install",
+          "npm --prefix frontend run lint"
+        ],
+        "risk_notes": [
+          "Next.js 15 lint config may require adjustment if next lint is unavailable or deprecated.",
+          "Do not create a landing page; page.tsx should host the chat application shell."
+        ]
+      },
+      {
+        "id": "TASK-004",
+        "repo": "backend",
+        "kind": "dev",
+        "title": "OpenRouter client abstraction",
+        "objective": "Implement the mockable OpenRouter client trait, HTTP client, streaming parser, error enum, and provider-focused tests.",
+        "context": [
+          "Project rules require OpenRouter calls to stay server-side and tests to avoid real provider calls.",
+          "OpenRouter failures for 429, timeout, invalid response, and interrupted streams must not crash the backend.",
+          "Handlers will depend on a trait object stored in AppState."
+        ],
+        "write_scope": [
+          "backend/src/openrouter.rs",
+          "backend/src/error.rs",
+          "backend/src/state.rs",
+          "backend/tests/openrouter_mock.rs",
+          "backend/tests/common/mod.rs"
+        ],
+        "depends_on": [
+          "TASK-002"
+        ],
+        "wave": 3,
+        "parallel_group": "backend-services",
+        "owner_role": "backend",
+        "acceptance_criteria": [
+          "OpenRouterClient exposes chat and stream methods that accept model and message history.",
+          "HttpOpenRouterClient sends bearer-authenticated requests to https://openrouter.ai/api/v1/chat/completions.",
+          "Streaming parser emits content deltas, skips empty deltas, and terminates on data: [DONE].",
+          "MockOpenRouterClient supports deterministic chat, deterministic token streams, and injectable failures."
+        ],
+        "verification_commands": [
+          "cargo test --manifest-path backend/Cargo.toml --test openrouter_mock"
+        ],
+        "risk_notes": [
+          "Do not log Authorization headers or key material.",
+          "Keep any configurable OpenRouter base URL test-only or non-secret."
+        ]
+      },
+      {
+        "id": "TASK-005",
+        "repo": "backend",
+        "kind": "dev",
+        "title": "Conversation REST routes",
+        "objective": "Add list and create conversation endpoints with validation, ordering, timestamps, and persistence tests.",
+        "context": [
+          "Endpoints are GET /api/conversations and POST /api/conversations.",
+          "Titles must be non-empty and at most 200 characters.",
+          "List ordering is updated_at DESC."
+        ],
+        "write_scope": [
+          "backend/src/routes/conversations.rs",
+          "backend/src/routes/mod.rs",
+          "backend/src/models.rs",
+          "backend/tests/conversations.rs",
+          "backend/tests/common/mod.rs"
+        ],
+        "depends_on": [
+          "TASK-002"
+        ],
+        "wave": 3,
+        "parallel_group": "backend-services",
+        "owner_role": "backend",
+        "acceptance_criteria": [
+          "GET /api/conversations returns [] for an empty database.",
+          "POST /api/conversations returns 201 with UUID id, title, created_at, and updated_at.",
+          "Empty and too-long titles return 400 with error.code VALIDATION.",
+          "Created conversations persist and appear in descending updated_at order."
+        ],
+        "verification_commands": [
+          "cargo test --manifest-path backend/Cargo.toml --test conversations"
+        ],
+        "risk_notes": [
+          "Timestamp strings should be consistent enough for deterministic ordering assertions.",
+          "Avoid DB query macros that require offline metadata."
+        ]
+      },
+      {
+        "id": "TASK-006",
+        "repo": "frontend",
+        "kind": "dev",
+        "title": "Frontend API schemas and hooks",
+        "objective": "Create zod schemas, typed API fetch helpers, TanStack Query hooks, and native SSE stream parsing hook.",
+        "context": [
+          "Frontend consumes only the backend API; no OpenRouter access belongs here.",
+          "Use zod validation for API responses and structured backend errors.",
+          "useStreamMessage should parse token, done, and error SSE frames from the backend stream endpoint."
+        ],
+        "write_scope": [
+          "frontend/src/lib/schemas.ts",
+          "frontend/src/lib/types.ts",
+          "frontend/src/lib/api.ts",
+          "frontend/src/hooks/useConversations.ts",
+          "frontend/src/hooks/useMessages.ts",
+          "frontend/src/hooks/useCreateConversation.ts",
+          "frontend/src/hooks/useStreamMessage.ts"
+        ],
+        "depends_on": [
+          "TASK-003"
+        ],
+        "wave": 3,
+        "parallel_group": "frontend-data",
+        "owner_role": "frontend",
+        "acceptance_criteria": [
+          "Schemas cover Conversation, Message, SendMessageResponse, ErrorBody, and Health shapes.",
+          "apiFetch defaults NEXT_PUBLIC_API_BASE_URL to http://localhost:8080 and throws ApiError for structured backend errors or zod parse failures.",
+          "Query hooks use stable query keys for conversations and messages.",
+          "Streaming hook aborts in-flight requests and invalidates conversations/messages on done."
+        ],
+        "verification_commands": [
+          "npm --prefix frontend run lint",
+          "npm --prefix frontend run test -- --runInBand"
+        ],
+        "risk_notes": [
+          "The Playwright route mocks must match the URL generated by apiFetch.",
+          "Avoid unsafe TypeScript casts in lib/api.ts and hooks."
+        ]
+      },
+      {
+        "id": "TASK-007",
+        "repo": "backend",
+        "kind": "dev",
+        "title": "Message send and SSE routes",
+        "objective": "Add message listing, synchronous send, and streaming send endpoints with persistence, OpenRouter integration, validation, and tests.",
+        "context": [
+          "Depends on conversation persistence and OpenRouter client abstraction.",
+          "Message content must be non-empty and at most 32000 characters.",
+          "SSE should persist assistant output after completion and emit error events for upstream failures."
+        ],
+        "write_scope": [
+          "backend/src/routes/messages.rs",
+          "backend/src/routes/mod.rs",
+          "backend/src/models.rs",
+          "backend/src/openrouter.rs",
+          "backend/tests/messages.rs",
+          "backend/tests/common/mod.rs"
+        ],
+        "depends_on": [
+          "TASK-004",
+          "TASK-005"
+        ],
+        "wave": 4,
+        "parallel_group": "backend-messages",
+        "owner_role": "backend",
+        "acceptance_criteria": [
+          "GET /api/conversations/:id/messages returns messages sorted created_at ASC and 404 for missing conversations.",
+          "POST /api/conversations/:id/messages persists user and assistant messages and returns both with 201.",
+          "POST /api/conversations/:id/stream emits token events, then done with assistant message id, and persists concatenated assistant content.",
+          "Validation and upstream errors return structured JSON or SSE error events without panics."
+        ],
+        "verification_commands": [
+          "cargo test --manifest-path backend/Cargo.toml --test messages",
+          "cargo test --manifest-path backend/Cargo.toml"
+        ],
+        "risk_notes": [
+          "Persisting partial content on disconnect is subtle; at minimum ensure no crash and deterministic completed-stream persistence.",
+          "Backpressure and stream lifetime must not hold mutable DB transactions across token emission."
+        ]
+      },
+      {
+        "id": "TASK-008",
+        "repo": "frontend",
+        "kind": "dev",
+        "title": "Chat application UI",
+        "objective": "Build the ChatGPT-style interface with sidebar conversations, transcript, markdown assistant bubbles, composer, loading/error states, and mobile drawer behavior.",
+        "context": [
+          "Use lucide-react icons for common actions.",
+          "Assistant markdown should render through react-markdown and remark-gfm without raw HTML.",
+          "Active conversation state is stored in the ?c=<id> URL query parameter."
+        ],
+        "write_scope": [
+          "frontend/src/components/ChatShell.tsx",
+          "frontend/src/components/Sidebar.tsx",
+          "frontend/src/components/ConversationItem.tsx",
+          "frontend/src/components/ChatWindow.tsx",
+          "frontend/src/components/MessageList.tsx",
+          "frontend/src/components/MessageBubble.tsx",
+          "frontend/src/components/Markdown.tsx",
+          "frontend/src/components/Composer.tsx",
+          "frontend/src/components/EmptyState.tsx",
+          "frontend/src/components/ErrorBanner.tsx",
+          "frontend/src/components/LoadingDots.tsx",
+          "frontend/src/app/page.tsx",
+          "frontend/src/app/globals.css"
+        ],
+        "depends_on": [
+          "TASK-006"
+        ],
+        "wave": 4,
+        "parallel_group": "frontend-ui",
+        "owner_role": "frontend",
+        "acceptance_criteria": [
+          "Sidebar lists conversations, highlights active conversation with aria-current, and can create a new chat.",
+          "ChatWindow shows EmptyState without active conversation and MessageList plus Composer when active.",
+          "Composer supports Enter to send, Shift+Enter for newline, disabled state while streaming, and accessible labels Message and Send.",
+          "Mobile width hides sidebar by default and exposes a menu-driven drawer without horizontal overflow."
+        ],
+        "verification_commands": [
+          "npm --prefix frontend run lint",
+          "npm --prefix frontend run build"
+        ],
+        "risk_notes": [
+          "Do not add explanatory feature text in the UI; build the usable app directly.",
+          "Keep text inside buttons and bubbles responsive without overlap."
+        ]
+      },
+      {
+        "id": "TASK-009",
+        "repo": "frontend",
+        "kind": "test",
+        "title": "Frontend component tests",
+        "objective": "Add focused Vitest and Testing Library coverage for MessageBubble, Composer, and Sidebar behavior.",
+        "context": [
+          "frontendqaplan.md defines exact test modules and expected cases.",
+          "Component tests should avoid real backend calls by seeding QueryClient or mocking the API wrapper."
+        ],
+        "write_scope": [
+          "frontend/src/__tests__/MessageBubble.test.tsx",
+          "frontend/src/__tests__/Composer.test.tsx",
+          "frontend/src/__tests__/Sidebar.test.tsx",
+          "frontend/vitest.config.ts",
+          "frontend/vitest.setup.ts"
+        ],
+        "depends_on": [
+          "TASK-008"
+        ],
+        "wave": 5,
+        "parallel_group": "frontend-qa",
+        "owner_role": "qa",
+        "acceptance_criteria": [
+          "MessageBubble tests cover user alignment, assistant markdown strong rendering, and streaming cursor.",
+          "Composer tests cover Enter send, Shift+Enter newline, disabled no-op, and empty-value disabled send.",
+          "Sidebar tests cover seeded conversation list, active aria-current, empty list, and New chat visibility.",
+          "All Vitest specs pass in jsdom."
+        ],
+        "verification_commands": [
+          "npm --prefix frontend run test"
+        ],
+        "risk_notes": [
+          "TanStack Query tests must use a fresh QueryClient per test to prevent shared cache leakage.",
+          "Use web-accessible queries where possible rather than brittle class-only selectors."
+        ]
+      },
+      {
+        "id": "TASK-010",
+        "repo": "frontend",
+        "kind": "test",
+        "title": "Playwright mocked streaming smoke",
+        "objective": "Add one Playwright smoke test that sends a message through the UI and verifies streamed assistant text using mocked backend API routes.",
+        "context": [
+          "No real backend or OpenRouter call is required for this smoke test.",
+          "Route mocks must be registered before page.goto.",
+          "The test should assert empty state, sending, assistant bubble visibility, concatenated streamed text, and URL query state."
+        ],
+        "write_scope": [
+          "frontend/e2e/send-message.spec.ts",
+          "frontend/playwright.config.ts"
+        ],
+        "depends_on": [
+          "TASK-008"
+        ],
+        "wave": 5,
+        "parallel_group": "frontend-qa",
+        "owner_role": "qa",
+        "acceptance_criteria": [
+          "Playwright intercepts all /api/** routes before navigation.",
+          "The smoke test fills the Message textarea, clicks Send, and sees an assistant bubble containing Hello world.",
+          "The URL contains ?c=<mock-conversation-id> after conversation creation.",
+          "The spec fails on page errors or browser console errors."
+        ],
+        "verification_commands": [
+          "npm --prefix frontend run test:e2e:install",
+          "npm --prefix frontend run test:e2e"
+        ],
+        "risk_notes": [
+          "Playwright browser install can be slow or unavailable in constrained environments; report that explicitly if blocked.",
+          "Mock URL patterns must match NEXT_PUBLIC_API_BASE_URL default behavior."
+        ]
+      },
+      {
+        "id": "TASK-011",
+        "repo": "backend",
+        "kind": "test",
+        "title": "Backend full verification",
+        "objective": "Run and stabilize backend formatting, linting, tests, and release build after all backend implementation tasks land.",
+        "context": [
+          "This is the backend verification gate required by project rules.",
+          "Fix only backend-owned issues discovered by fmt, clippy, tests, or build."
+        ],
+        "write_scope": [
+          "backend/**"
+        ],
+        "depends_on": [
+          "TASK-007"
+        ],
+        "wave": 6,
+        "parallel_group": "verification",
+        "owner_role": "qa",
+        "acceptance_criteria": [
+          "cargo fmt --check passes.",
+          "cargo clippy --all-targets -- -D warnings passes.",
+          "cargo test passes without external OpenRouter calls.",
+          "cargo build --release succeeds."
+        ],
+        "verification_commands": [
+          "cargo fmt --manifest-path backend/Cargo.toml --check",
+          "cargo clippy --manifest-path backend/Cargo.toml --all-targets -- -D warnings",
+          "cargo test --manifest-path backend/Cargo.toml",
+          "cargo build --manifest-path backend/Cargo.toml --release"
+        ],
+        "risk_notes": [
+          "Do not hide failures by weakening tests or removing required error handling.",
+          "If clippy exposes design issues in shared types, coordinate with frontend contract expectations before changing JSON shapes."
+        ]
+      },
+      {
+        "id": "TASK-012",
+        "repo": "frontend",
+        "kind": "test",
+        "title": "Frontend full verification",
+        "objective": "Run and stabilize frontend install, lint, component tests, production build, and Playwright smoke after all frontend tasks land.",
+        "context": [
+          "This is the frontend verification gate required by project rules.",
+          "Playwright remains mocked and must not require the backend server or OpenRouter."
+        ],
+        "write_scope": [
+          "frontend/**"
+        ],
+        "depends_on": [
+          "TASK-009",
+          "TASK-010"
+        ],
+        "wave": 6,
+        "parallel_group": "verification",
+        "owner_role": "qa",
+        "acceptance_criteria": [
+          "npm install completes with package-lock.json generated if npm is the chosen package manager.",
+          "npm run lint passes.",
+          "npm run test passes.",
+          "npm run build passes with no TypeScript errors.",
+          "npm run test:e2e passes with mocked API routes."
+        ],
+        "verification_commands": [
+          "npm --prefix frontend install",
+          "npm --prefix frontend run lint",
+          "npm --prefix frontend run test",
+          "npm --prefix frontend run build",
+          "npm --prefix frontend run test:e2e:install",
+          "npm --prefix frontend run test:e2e"
+        ],
+        "risk_notes": [
+          "Do not commit frontend/node_modules, .next, test-results, or playwright-report.",
+          "Keep Playwright smoke deterministic and independent from local backend availability."
+        ]
+      },
+      {
+        "id": "TASK-013",
+        "repo": "root",
+        "kind": "fix",
+        "title": "Final docs, secret scan, and handoff readiness",
+        "objective": "Finalize README instructions, confirm ignored artifacts, scan tracked files for provider keys, and prepare the CodeDungeon completion handoff.",
+        "context": [
+          "Final CodeDungeon reports may claim COMPLETE only after verification is PASS and review is APPROVED.",
+          "Project rules state workflows are PR-centered and final merge remains with the user.",
+          "If project rules become stale only because requested source files were created, refresh and compact them before finalizing."
+        ],
+        "write_scope": [
+          "README.md",
+          ".env.example",
+          ".gitignore",
+          ".codedungeon/project-rules.md",
+          ".codedungeon/project-rules.compact.md"
+        ],
+        "depends_on": [
+          "TASK-011",
+          "TASK-012"
+        ],
+        "wave": 7,
+        "parallel_group": "finalization",
+        "owner_role": "docs",
+        "acceptance_criteria": [
+          "README includes setup, env, backend run, frontend run, backend tests, frontend tests, Playwright smoke, and troubleshooting.",
+          ".env.example remains placeholder-only and contains OPENROUTER_API_KEY, OPENROUTER_MODEL, DATABASE_URL, BACKEND_HOST, BACKEND_PORT, FRONTEND_ORIGIN, and NEXT_PUBLIC_API_BASE_URL.",
+          "Tracked-file scan finds no OpenRouter key material.",
+          "Final handoff includes project rules status approved, digest 54eae19e90a1b403912baee95e0294f1ff7bdf2aff6afb8d07af8d0744677dfe, read yes."
+        ],
+        "verification_commands": [
+          "git status --short",
+          "git ls-files | Select-String -Pattern \"OPENROUTER_API_KEY|sk-or-|Bearer \"",
+          "Get-Content README.md",
+          "Get-Content .env.example"
+        ],
+        "risk_notes": [
+          "The simple grep can match placeholder names; reviewers must distinguish placeholder variable names from real key material.",
+          "Do not mark final completion unless backend and frontend verification tasks both passed."
+        ]
+      }
+    ]
+  }
+}
