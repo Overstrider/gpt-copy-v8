@@ -257,6 +257,7 @@ async fn stream_empty_response_persists_user_and_emits_error() {
     assert_eq!(res.status(), StatusCode::OK);
     let body_text = common::read_text(res).await;
     assert!(body_text.contains("event: error"));
+    assert!(body_text.contains("EMPTY_RESPONSE"));
     assert!(body_text.contains("Empty response"));
 
     let res = app
@@ -271,9 +272,12 @@ async fn stream_empty_response_persists_user_and_emits_error() {
 }
 
 #[tokio::test]
-async fn stream_client_disconnect_persists_user_and_partial_content() {
-    let app =
-        common::test_app_with_mock(MockOpenRouterClient::with_stream(vec!["Hel", "lo"])).await;
+async fn stream_client_disconnect_discards_partial_turn() {
+    let app = common::test_app_with_mock(MockOpenRouterClient::with_delayed_stream(
+        vec!["Hel", "lo"],
+        Duration::from_millis(25),
+    ))
+    .await;
     let conv_id = create_conversation(&app, "c").await;
 
     let res = app
@@ -287,26 +291,14 @@ async fn stream_client_disconnect_persists_user_and_partial_content() {
     assert_eq!(res.status(), StatusCode::OK);
     drop(res);
 
-    let mut body = serde_json::Value::Null;
-    for _ in 0..20 {
-        sleep(Duration::from_millis(25)).await;
-        let res = app
-            .clone()
-            .oneshot(get(&format!("/api/conversations/{conv_id}/messages")))
-            .await
-            .unwrap();
-        body = common::read_json(res).await;
-        if body.as_array().is_some_and(|arr| arr.len() >= 2) {
-            break;
-        }
-    }
+    sleep(Duration::from_millis(150)).await;
 
-    let arr = body.as_array().unwrap();
-    assert_eq!(arr.len(), 2);
-    assert_eq!(arr[0]["role"], "user");
-    assert_eq!(arr[0]["content"], "hi");
-    assert_eq!(arr[1]["role"], "assistant");
-    assert!(arr[1]["content"].as_str().unwrap().starts_with("Hel"));
+    let res = app
+        .oneshot(get(&format!("/api/conversations/{conv_id}/messages")))
+        .await
+        .unwrap();
+    let body = common::read_json(res).await;
+    assert_eq!(body.as_array().unwrap().len(), 0);
 }
 
 #[tokio::test]

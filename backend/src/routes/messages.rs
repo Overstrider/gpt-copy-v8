@@ -187,9 +187,9 @@ pub async fn stream(
 
         let assistant_id = Uuid::new_v4();
         let assistant_now = now_iso();
-        if errored {
-            // Intentional: upstream failures and over-cap streams discard both
-            // messages so the user can retry without committing a broken turn.
+        if errored || client_gone {
+            // Intentional: upstream failures, over-cap streams, and client
+            // disconnects discard both messages so the user can retry cleanly.
             return;
         }
 
@@ -197,7 +197,7 @@ pub async fn stream(
             Ok(tx) => tx,
             Err(e) => {
                 tracing::error!(error = ?e, "begin stream persistence transaction failed");
-                send_stream_error(&tx, "Provider unavailable").await;
+                send_stream_error(&tx, "UPSTREAM", "Provider unavailable").await;
                 return;
             }
         };
@@ -212,7 +212,7 @@ pub async fn stream(
         .await
         {
             tracing::error!(error = ?e, "persist user msg failed");
-            send_stream_error(&tx, "Provider unavailable").await;
+            send_stream_error(&tx, "UPSTREAM", "Provider unavailable").await;
             return;
         }
         if !accumulated.is_empty()
@@ -227,7 +227,7 @@ pub async fn stream(
             .await
         {
             tracing::error!(error = ?e, "persist assistant msg failed");
-            send_stream_error(&tx, "Provider unavailable").await;
+            send_stream_error(&tx, "UPSTREAM", "Provider unavailable").await;
             return;
         }
         let touch_time = if accumulated.is_empty() {
@@ -237,21 +237,17 @@ pub async fn stream(
         };
         if let Err(e) = touch_conversation_tx(&mut tx_db, conv_id, touch_time).await {
             tracing::error!(error = ?e, "touch conversation failed");
-            send_stream_error(&tx, "Provider unavailable").await;
+            send_stream_error(&tx, "UPSTREAM", "Provider unavailable").await;
             return;
         }
         if let Err(e) = tx_db.commit().await {
             tracing::error!(error = ?e, "commit stream persistence failed");
-            send_stream_error(&tx, "Provider unavailable").await;
-            return;
-        }
-
-        if client_gone {
+            send_stream_error(&tx, "UPSTREAM", "Provider unavailable").await;
             return;
         }
 
         if accumulated.is_empty() {
-            send_stream_error(&tx, "Empty response").await;
+            send_stream_error(&tx, "EMPTY_RESPONSE", "Empty response").await;
             return;
         }
 
@@ -267,9 +263,13 @@ pub async fn stream(
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
-async fn send_stream_error(tx: &mpsc::Sender<Result<Event, Infallible>>, message: &str) {
+async fn send_stream_error(
+    tx: &mpsc::Sender<Result<Event, Infallible>>,
+    code: &str,
+    message: &str,
+) {
     let payload = json!({
-        "code": "UPSTREAM",
+        "code": code,
         "message": message,
     })
     .to_string();

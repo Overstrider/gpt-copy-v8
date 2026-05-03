@@ -356,6 +356,7 @@ mod tests {
 pub struct MockOpenRouterClient {
     chat_response: Mutex<Option<Result<String, OpenRouterError>>>,
     stream_chunks: Mutex<Option<Vec<Result<String, OpenRouterError>>>>,
+    stream_delay: Duration,
 }
 
 impl MockOpenRouterClient {
@@ -363,6 +364,7 @@ impl MockOpenRouterClient {
         Self {
             chat_response: Mutex::new(Some(Ok(text.into()))),
             stream_chunks: Mutex::new(Some(Vec::new())),
+            stream_delay: Duration::ZERO,
         }
     }
 
@@ -372,6 +374,17 @@ impl MockOpenRouterClient {
             stream_chunks: Mutex::new(Some(
                 chunks.into_iter().map(|c| Ok(c.to_string())).collect(),
             )),
+            stream_delay: Duration::ZERO,
+        }
+    }
+
+    pub fn with_delayed_stream(chunks: Vec<&str>, delay: Duration) -> Self {
+        Self {
+            chat_response: Mutex::new(Some(Ok(String::new()))),
+            stream_chunks: Mutex::new(Some(
+                chunks.into_iter().map(|c| Ok(c.to_string())).collect(),
+            )),
+            stream_delay: delay,
         }
     }
 
@@ -379,6 +392,7 @@ impl MockOpenRouterClient {
         Self {
             chat_response: Mutex::new(Some(Err(err))),
             stream_chunks: Mutex::new(Some(Vec::new())),
+            stream_delay: Duration::ZERO,
         }
     }
 
@@ -386,6 +400,7 @@ impl MockOpenRouterClient {
         Self {
             chat_response: Mutex::new(Some(Ok(String::new()))),
             stream_chunks: Mutex::new(Some(vec![Err(err)])),
+            stream_delay: Duration::ZERO,
         }
     }
 }
@@ -412,7 +427,13 @@ impl OpenRouterClient for MockOpenRouterClient {
     ) -> Result<BoxStream<'static, Result<String, OpenRouterError>>, OpenRouterError> {
         let mut guard = self.stream_chunks.lock().expect("mock stream poisoned");
         let chunks = guard.take().unwrap_or_default();
-        let stream = futures_util::stream::iter(chunks);
+        let delay = self.stream_delay;
+        let stream = futures_util::stream::iter(chunks).then(move |item| async move {
+            if !delay.is_zero() {
+                tokio::time::sleep(delay).await;
+            }
+            item
+        });
         Ok(Box::pin(stream))
     }
 }
