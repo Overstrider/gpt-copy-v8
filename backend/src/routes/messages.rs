@@ -23,6 +23,7 @@ use crate::{
 
 const MAX_STREAMED_ASSISTANT_BYTES: usize = 128 * 1024;
 const MAX_HISTORY_MESSAGES: i64 = 200;
+const MAX_HISTORY_BYTES: usize = 128 * 1024;
 
 pub async fn list(
     State(state): State<AppState>,
@@ -329,11 +330,18 @@ async fn load_history(pool: &SqlitePool, conv_id: Uuid) -> Result<Vec<ChatMessag
     .await?;
 
     let mut history = Vec::with_capacity(rows.len());
-    for row in rows {
+    let mut total_bytes = 0usize;
+    for row in rows.into_iter().rev() {
         let role: String = row.try_get("role")?;
         let content: String = row.try_get("content")?;
+        let content_len = content.len();
+        if !history.is_empty() && total_bytes + content_len > MAX_HISTORY_BYTES {
+            break;
+        }
+        total_bytes += content_len;
         history.push(ChatMessage { role, content });
     }
+    history.reverse();
     Ok(history)
 }
 
@@ -348,4 +356,65 @@ async fn touch_conversation_tx(
         .execute(&mut **tx)
         .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db;
+    use tempfile::TempDir;
+
+    async fn temp_pool() -> (SqlitePool, &'static TempDir) {
+        let dir = TempDir::new().expect("tempdir");
+        let dir_ref: &'static TempDir = Box::leak(Box::new(dir));
+        let db_path = dir_ref.path().join("history.sqlite");
+        let url = format!(
+            "sqlite://{}?mode=rwc",
+            db_path.display().to_string().replace('\\', "/")
+        );
+        (db::init_pool(&url).await.expect("init pool"), dir_ref)
+    }
+
+    #[tokio::test]
+    async fn load_history_keeps_newest_messages_within_byte_cap() {
+        let (pool, _dir) = temp_pool().await;
+        let conv_id = Uuid::new_v4();
+        let created_at = "2026-05-03T00:00:00Z";
+        sqlx::query(
+            "INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
+        )
+        .bind(conv_id.to_string())
+        .bind("history cap")
+        .bind(created_at)
+        .bind(created_at)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let mut tx = pool.begin().await.unwrap();
+        for idx in 0..4 {
+            let content = format!("{idx}:{}", "x".repeat(40_000));
+            let created_at = format!("2026-05-03T00:00:0{idx}Z");
+            insert_message_tx(
+                &mut tx,
+                Uuid::new_v4(),
+                conv_id,
+                Role::User,
+                &content,
+                &created_at,
+            )
+            .await
+            .unwrap();
+        }
+        tx.commit().await.unwrap();
+
+        let history = load_history(&pool, conv_id).await.unwrap();
+
+        assert_eq!(history.len(), 3);
+        assert!(history.iter().all(|msg| msg.content.len() <= 40_002));
+        assert!(history[0].content.starts_with("1:"));
+        assert!(history[1].content.starts_with("2:"));
+        assert!(history[2].content.starts_with("3:"));
+        assert!(history.iter().map(|msg| msg.content.len()).sum::<usize>() <= MAX_HISTORY_BYTES);
+    }
 }

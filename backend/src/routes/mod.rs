@@ -73,9 +73,8 @@ struct RateLimiter {
 }
 
 struct RateBucket {
-    start: Instant,
     last_seen: Instant,
-    count: u32,
+    tokens: f64,
 }
 
 impl RateLimiter {
@@ -90,7 +89,7 @@ impl RateLimiter {
     async fn allow(&self, key: String) -> bool {
         let now = Instant::now();
         let mut buckets = self.buckets.lock().await;
-        buckets.retain(|_, bucket| now.duration_since(bucket.start) < self.window * 2);
+        buckets.retain(|_, bucket| now.duration_since(bucket.last_seen) < self.window * 2);
         if buckets.len() >= MAX_RATE_LIMIT_BUCKETS
             && !buckets.contains_key(&key)
             && let Some(oldest_key) = buckets
@@ -102,19 +101,17 @@ impl RateLimiter {
             buckets.remove(&oldest_key);
         }
         let bucket = buckets.entry(key).or_insert(RateBucket {
-            start: now,
             last_seen: now,
-            count: 0,
+            tokens: self.max as f64,
         });
+        let elapsed = now.duration_since(bucket.last_seen).as_secs_f64();
+        let refill_per_second = self.max as f64 / self.window.as_secs_f64();
+        bucket.tokens = (bucket.tokens + elapsed * refill_per_second).min(self.max as f64);
         bucket.last_seen = now;
-        if now.duration_since(bucket.start) >= self.window {
-            bucket.start = now;
-            bucket.count = 0;
-        }
-        if bucket.count >= self.max {
+        if bucket.tokens < 1.0 {
             return false;
         }
-        bucket.count += 1;
+        bucket.tokens -= 1.0;
         true
     }
 }
@@ -188,6 +185,24 @@ mod tests {
         assert!(!buckets.contains_key("client-0"));
         assert!(buckets.contains_key("new-client"));
         assert!(buckets.contains_key("client-1"));
+    }
+
+    #[tokio::test]
+    async fn rate_limiter_refills_gradually_instead_of_resetting_at_boundary() {
+        let limiter = RateLimiter::new(60, Duration::from_secs(60));
+        for _ in 0..60 {
+            assert!(limiter.allow("client".to_string()).await);
+        }
+        assert!(!limiter.allow("client".to_string()).await);
+
+        {
+            let mut buckets = limiter.buckets.lock().await;
+            let bucket = buckets.get_mut("client").expect("client bucket");
+            bucket.last_seen = Instant::now() - Duration::from_secs(1);
+        }
+
+        assert!(limiter.allow("client".to_string()).await);
+        assert!(!limiter.allow("client".to_string()).await);
     }
 
     #[test]

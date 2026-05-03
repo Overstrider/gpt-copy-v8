@@ -94,6 +94,8 @@ export function useStreamMessage(): UseStreamMessageResult {
         if (!terminated) {
           setStatus("error");
           setError("connection closed unexpectedly");
+          qc.invalidateQueries({ queryKey: ["messages", conversationId] });
+          qc.invalidateQueries({ queryKey: ["conversations"] });
         }
       } catch (e) {
         if ((e as Error).name === "AbortError") return;

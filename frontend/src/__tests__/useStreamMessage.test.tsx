@@ -62,9 +62,11 @@ describe("useStreamMessage", () => {
   });
 
   it("marks the stream errored when the body closes without done or error", async () => {
+    const qc = testQueryClient();
+    const invalidate = vi.spyOn(qc, "invalidateQueries");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(streamResponse("")));
 
-    render(withQuery(<StreamHarness />));
+    render(withQuery(<StreamHarness />, qc));
     await userEvent.click(screen.getByRole("button", { name: "send" }));
 
     await waitFor(() => {
@@ -72,6 +74,10 @@ describe("useStreamMessage", () => {
       expect(screen.getByTestId("error").textContent).toBe(
         "connection closed unexpectedly",
       );
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: ["messages", "conv-1"],
+      });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["conversations"] });
     });
   });
 

@@ -6,6 +6,7 @@ use axum::{
 };
 use gpt_copy_v8_backend::openrouter::{MockOpenRouterClient, OpenRouterError};
 use serde_json::json;
+use tokio::time::{Duration, sleep};
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -267,6 +268,45 @@ async fn stream_empty_response_persists_user_and_emits_error() {
     assert_eq!(arr.len(), 1);
     assert_eq!(arr[0]["role"], "user");
     assert_eq!(arr[0]["content"], "hi");
+}
+
+#[tokio::test]
+async fn stream_client_disconnect_persists_user_and_partial_content() {
+    let app =
+        common::test_app_with_mock(MockOpenRouterClient::with_stream(vec!["Hel", "lo"])).await;
+    let conv_id = create_conversation(&app, "c").await;
+
+    let res = app
+        .clone()
+        .oneshot(post_json(
+            &format!("/api/conversations/{conv_id}/stream"),
+            json!({ "content": "hi" }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    drop(res);
+
+    let mut body = serde_json::Value::Null;
+    for _ in 0..20 {
+        sleep(Duration::from_millis(25)).await;
+        let res = app
+            .clone()
+            .oneshot(get(&format!("/api/conversations/{conv_id}/messages")))
+            .await
+            .unwrap();
+        body = common::read_json(res).await;
+        if body.as_array().is_some_and(|arr| arr.len() >= 2) {
+            break;
+        }
+    }
+
+    let arr = body.as_array().unwrap();
+    assert_eq!(arr.len(), 2);
+    assert_eq!(arr[0]["role"], "user");
+    assert_eq!(arr[0]["content"], "hi");
+    assert_eq!(arr[1]["role"], "assistant");
+    assert!(arr[1]["content"].as_str().unwrap().starts_with("Hel"));
 }
 
 #[tokio::test]
