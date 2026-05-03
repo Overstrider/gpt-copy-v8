@@ -51,37 +51,47 @@ export function useStreamMessage(): UseStreamMessageResult {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let pending = "";
+        let terminated = false;
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
           pending += decoder.decode(value, { stream: true });
-          let idx: number;
-          while ((idx = pending.indexOf("\n\n")) !== -1) {
+          let match: RegExpMatchArray | null;
+          while ((match = pending.match(/\r?\n\r?\n/)) !== null) {
+            const idx = match.index ?? 0;
             const raw = pending.slice(0, idx);
-            pending = pending.slice(idx + 2);
+            pending = pending.slice(idx + match[0].length);
             let evt: string | null = null;
             let data = "";
-            for (const line of raw.split("\n")) {
+            for (const rawLine of raw.split("\n")) {
+              const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
               if (line.startsWith("event:")) evt = line.slice(6).trim();
               else if (line.startsWith("data:")) {
                 // Per SSE spec: strip a single optional leading space after `data:`,
                 // preserve all other whitespace (trailing spaces are significant tokens).
                 const rest = line.slice(5);
-                data += rest.startsWith(" ") ? rest.slice(1) : rest;
+                const value = rest.startsWith(" ") ? rest.slice(1) : rest;
+                data += `${data ? "\n" : ""}${value}`;
               }
             }
             if (evt === "token") setBuffer((b) => b + data);
             else if (evt === "done") {
+              terminated = true;
               setStatus("done");
               qc.invalidateQueries({ queryKey: ["messages", conversationId] });
               qc.invalidateQueries({ queryKey: ["conversations"] });
             } else if (evt === "error") {
+              terminated = true;
               setStatus("error");
               setError(parseStreamError(data));
             } else if (evt && process.env.NODE_ENV !== "production") {
               console.warn(`Unhandled SSE event: ${evt}`);
             }
           }
+        }
+        if (!terminated) {
+          setStatus("error");
+          setError("connection closed unexpectedly");
         }
       } catch (e) {
         if ((e as Error).name === "AbortError") return;

@@ -242,6 +242,34 @@ async fn stream_emits_tokens_then_done() {
 }
 
 #[tokio::test]
+async fn stream_empty_response_persists_user_and_emits_error() {
+    let app = common::test_app_with_mock(MockOpenRouterClient::with_stream(vec![])).await;
+    let conv_id = create_conversation(&app, "c").await;
+    let res = app
+        .clone()
+        .oneshot(post_json(
+            &format!("/api/conversations/{conv_id}/stream"),
+            json!({ "content": "hi" }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body_text = common::read_text(res).await;
+    assert!(body_text.contains("event: error"));
+    assert!(body_text.contains("Empty response"));
+
+    let res = app
+        .oneshot(get(&format!("/api/conversations/{conv_id}/messages")))
+        .await
+        .unwrap();
+    let body = common::read_json(res).await;
+    let arr = body.as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["role"], "user");
+    assert_eq!(arr[0]["content"], "hi");
+}
+
+#[tokio::test]
 async fn stream_error_sanitizes_and_does_not_persist_messages() {
     let app = common::test_app_with_mock(MockOpenRouterClient::with_stream_error(
         OpenRouterError::HttpStatus(429),

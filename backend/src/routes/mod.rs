@@ -74,6 +74,7 @@ struct RateLimiter {
 
 struct RateBucket {
     start: Instant,
+    last_seen: Instant,
     count: u32,
 }
 
@@ -90,14 +91,22 @@ impl RateLimiter {
         let now = Instant::now();
         let mut buckets = self.buckets.lock().await;
         buckets.retain(|_, bucket| now.duration_since(bucket.start) < self.window * 2);
-        if buckets.len() >= MAX_RATE_LIMIT_BUCKETS && !buckets.contains_key(&key) {
-            tracing::warn!("rate limiter bucket cap reached; clearing stale bucket map");
-            buckets.clear();
+        if buckets.len() >= MAX_RATE_LIMIT_BUCKETS
+            && !buckets.contains_key(&key)
+            && let Some(oldest_key) = buckets
+                .iter()
+                .min_by_key(|(_, bucket)| bucket.last_seen)
+                .map(|(key, _)| key.clone())
+        {
+            tracing::warn!(key = %oldest_key, "rate limiter bucket cap reached; evicting oldest bucket");
+            buckets.remove(&oldest_key);
         }
         let bucket = buckets.entry(key).or_insert(RateBucket {
             start: now,
+            last_seen: now,
             count: 0,
         });
+        bucket.last_seen = now;
         if now.duration_since(bucket.start) >= self.window {
             bucket.start = now;
             bucket.count = 0;

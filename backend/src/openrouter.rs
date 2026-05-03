@@ -212,14 +212,14 @@ where
 
     struct State {
         inner: BoxStream<'static, Result<bytes::Bytes, reqwest::Error>>,
-        buf: String,
+        buf: Vec<u8>,
         done: bool,
         pending: std::collections::VecDeque<Result<String, OpenRouterError>>,
     }
 
     let initial = State {
         inner: Box::pin(byte_stream),
-        buf: String::new(),
+        buf: Vec::new(),
         done: false,
         pending: std::collections::VecDeque::new(),
     };
@@ -234,41 +234,16 @@ where
             }
             match s.inner.next().await {
                 Some(Ok(chunk)) => {
-                    let text = match std::str::from_utf8(&chunk) {
-                        Ok(t) => t.to_string(),
-                        Err(e) => {
+                    s.buf.extend_from_slice(&chunk);
+                    while let Some((idx, delimiter_len)) = find_sse_event_delimiter(&s.buf) {
+                        let event_bytes: Vec<u8> = s.buf.drain(..idx).collect();
+                        s.buf.drain(..delimiter_len);
+                        if process_sse_event(&event_bytes, &mut s.pending) {
                             s.done = true;
-                            return Some((Err(OpenRouterError::Stream(e.to_string())), s));
-                        }
-                    };
-                    s.buf.push_str(&text);
-                    // Process complete events terminated by \n\n
-                    while let Some(idx) = s.buf.find("\n\n") {
-                        let event_text = s.buf[..idx].to_string();
-                        s.buf.drain(..idx + 2);
-                        for line in event_text.lines() {
-                            let line = line.trim_end_matches('\r');
-                            if let Some(rest) = line.strip_prefix("data:") {
-                                let payload = rest.trim_start();
-                                if payload == "[DONE]" {
-                                    s.done = true;
-                                    if let Some(item) = s.pending.pop_front() {
-                                        return Some((item, s));
-                                    }
-                                    return None;
-                                }
-                                match serde_json::from_str::<StreamChunk>(payload) {
-                                    Ok(chunk) => {
-                                        if let Some(content) = extract_delta(chunk) {
-                                            s.pending.push_back(Ok(content));
-                                        }
-                                    }
-                                    Err(e) => {
-                                        s.pending
-                                            .push_back(Err(OpenRouterError::Stream(e.to_string())));
-                                    }
-                                }
+                            if let Some(item) = s.pending.pop_front() {
+                                return Some((item, s));
                             }
+                            return None;
                         }
                     }
                 }
@@ -279,24 +254,13 @@ where
                 None => {
                     s.done = true;
                     // Process any final buffered event without trailing \n\n
-                    if !s.buf.trim().is_empty() {
-                        let event_text = std::mem::take(&mut s.buf);
-                        for line in event_text.lines() {
-                            let line = line.trim_end_matches('\r');
-                            if let Some(rest) = line.strip_prefix("data:") {
-                                let payload = rest.trim_start();
-                                if payload == "[DONE]" {
-                                    if let Some(item) = s.pending.pop_front() {
-                                        return Some((item, s));
-                                    }
-                                    return None;
-                                }
-                                if let Ok(chunk) = serde_json::from_str::<StreamChunk>(payload)
-                                    && let Some(content) = extract_delta(chunk)
-                                {
-                                    s.pending.push_back(Ok(content));
-                                }
+                    if !s.buf.iter().all(u8::is_ascii_whitespace) {
+                        let event_bytes = std::mem::take(&mut s.buf);
+                        if process_sse_event(&event_bytes, &mut s.pending) {
+                            if let Some(item) = s.pending.pop_front() {
+                                return Some((item, s));
                             }
+                            return None;
                         }
                     }
                     if let Some(item) = s.pending.pop_front() {
@@ -309,6 +273,84 @@ where
     });
 
     Box::pin(stream)
+}
+
+fn find_sse_event_delimiter(buf: &[u8]) -> Option<(usize, usize)> {
+    let lf = buf
+        .windows(2)
+        .position(|w| w == b"\n\n")
+        .map(|idx| (idx, 2));
+    let crlf = buf
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .map(|idx| (idx, 4));
+    match (lf, crlf) {
+        (Some(left), Some(right)) => Some(std::cmp::min_by_key(left, right, |(idx, _)| *idx)),
+        (Some(found), None) | (None, Some(found)) => Some(found),
+        (None, None) => None,
+    }
+}
+
+fn process_sse_event(
+    event_bytes: &[u8],
+    pending: &mut std::collections::VecDeque<Result<String, OpenRouterError>>,
+) -> bool {
+    let event_text = match std::str::from_utf8(event_bytes) {
+        Ok(text) => text,
+        Err(e) => {
+            pending.push_back(Err(OpenRouterError::Stream(e.to_string())));
+            return true;
+        }
+    };
+
+    let mut data_lines = Vec::new();
+    for line in event_text.lines() {
+        let line = line.trim_end_matches('\r');
+        if let Some(rest) = line.strip_prefix("data:") {
+            data_lines.push(rest.strip_prefix(' ').unwrap_or(rest));
+        }
+    }
+
+    if data_lines.is_empty() {
+        return false;
+    }
+    let payload = data_lines.join("\n");
+    if payload.trim() == "[DONE]" {
+        return true;
+    }
+    match serde_json::from_str::<StreamChunk>(payload.trim()) {
+        Ok(chunk) => {
+            if let Some(content) = extract_delta(chunk) {
+                pending.push_back(Ok(content));
+            }
+        }
+        Err(e) => pending.push_back(Err(OpenRouterError::Stream(e.to_string()))),
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn parse_sse_stream_handles_utf8_split_across_network_chunks() {
+        let mut first = b"data: {\"choices\":[{\"delta\":{\"content\":\"caf".to_vec();
+        first.push(0xc3);
+        let mut second = vec![0xa9];
+        second.extend_from_slice(b"\"}}]}\n\ndata: [DONE]\n\n");
+        let first = bytes::Bytes::from(first);
+        let second = bytes::Bytes::from(second);
+        let byte_stream = futures_util::stream::iter([Ok(first), Ok(second)]);
+        let mut stream = parse_sse_stream(byte_stream);
+
+        let mut out = Vec::new();
+        while let Some(item) = stream.next().await {
+            out.push(item.expect("stream item"));
+        }
+
+        assert_eq!(out, vec!["café".to_string()]);
+    }
 }
 
 pub struct MockOpenRouterClient {

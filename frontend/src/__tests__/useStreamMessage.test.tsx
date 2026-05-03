@@ -16,6 +16,8 @@ function StreamHarness() {
       <button type="button" onClick={() => void stream.send("conv-1", "hello")}>
         send
       </button>
+      <div data-testid="status">{stream.status}</div>
+      <div data-testid="buffer">{stream.buffer}</div>
       <div data-testid="error">{stream.error}</div>
     </>
   );
@@ -53,6 +55,36 @@ describe("useStreamMessage", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("error").textContent).toBe("too many requests");
+    });
+  });
+
+  it("marks the stream errored when the body closes without done or error", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(streamResponse("")));
+
+    render(withQuery(<StreamHarness />));
+    await userEvent.click(screen.getByRole("button", { name: "send" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("status").textContent).toBe("error");
+      expect(screen.getByTestId("error").textContent).toBe(
+        "connection closed unexpectedly",
+      );
+    });
+  });
+
+  it("joins multi-line SSE data fields with a newline", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        streamResponse("event: error\ndata: first\ndata: second\n\n"),
+      ),
+    );
+
+    render(withQuery(<StreamHarness />));
+    await userEvent.click(screen.getByRole("button", { name: "send" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("error").textContent).toBe("first\nsecond");
     });
   });
 });

@@ -186,28 +186,34 @@ pub async fn stream(
 
         let assistant_id = Uuid::new_v4();
         let assistant_now = now_iso();
-        if !errored && !client_gone && !accumulated.is_empty() {
-            let mut tx_db = match pool.begin().await {
-                Ok(tx) => tx,
-                Err(e) => {
-                    tracing::error!(error = ?e, "begin stream persistence transaction failed");
-                    return;
-                }
-            };
-            if let Err(e) = insert_message_tx(
-                &mut tx_db,
-                user_id,
-                conv_id,
-                Role::User,
-                &user_content,
-                &user_now,
-            )
-            .await
-            {
-                tracing::error!(error = ?e, "persist user msg failed");
+        if errored || client_gone {
+            return;
+        }
+
+        let mut tx_db = match pool.begin().await {
+            Ok(tx) => tx,
+            Err(e) => {
+                tracing::error!(error = ?e, "begin stream persistence transaction failed");
+                send_stream_error(&tx, "Provider unavailable").await;
                 return;
             }
-            if let Err(e) = insert_message_tx(
+        };
+        if let Err(e) = insert_message_tx(
+            &mut tx_db,
+            user_id,
+            conv_id,
+            Role::User,
+            &user_content,
+            &user_now,
+        )
+        .await
+        {
+            tracing::error!(error = ?e, "persist user msg failed");
+            send_stream_error(&tx, "Provider unavailable").await;
+            return;
+        }
+        if !accumulated.is_empty()
+            && let Err(e) = insert_message_tx(
                 &mut tx_db,
                 assistant_id,
                 conv_id,
@@ -216,32 +222,52 @@ pub async fn stream(
                 &assistant_now,
             )
             .await
-            {
-                tracing::error!(error = ?e, "persist assistant msg failed");
-                return;
-            }
-            if let Err(e) = touch_conversation_tx(&mut tx_db, conv_id, &assistant_now).await {
-                tracing::error!(error = ?e, "touch conversation failed");
-                return;
-            }
-            if let Err(e) = tx_db.commit().await {
-                tracing::error!(error = ?e, "commit stream persistence failed");
-                return;
-            }
+        {
+            tracing::error!(error = ?e, "persist assistant msg failed");
+            send_stream_error(&tx, "Provider unavailable").await;
+            return;
+        }
+        let touch_time = if accumulated.is_empty() {
+            &user_now
+        } else {
+            &assistant_now
+        };
+        if let Err(e) = touch_conversation_tx(&mut tx_db, conv_id, touch_time).await {
+            tracing::error!(error = ?e, "touch conversation failed");
+            send_stream_error(&tx, "Provider unavailable").await;
+            return;
+        }
+        if let Err(e) = tx_db.commit().await {
+            tracing::error!(error = ?e, "commit stream persistence failed");
+            send_stream_error(&tx, "Provider unavailable").await;
+            return;
         }
 
-        if !errored && !client_gone {
-            let payload = json!({
-                "message_id": assistant_id.to_string(),
-            })
-            .to_string();
-            let event = Event::default().event("done").data(payload);
-            let _ = tx.send(Ok(event)).await;
+        if accumulated.is_empty() {
+            send_stream_error(&tx, "Empty response").await;
+            return;
         }
+
+        let payload = json!({
+            "message_id": assistant_id.to_string(),
+        })
+        .to_string();
+        let event = Event::default().event("done").data(payload);
+        let _ = tx.send(Ok(event)).await;
     });
 
     let stream = ReceiverStream::new(rx);
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
+}
+
+async fn send_stream_error(tx: &mpsc::Sender<Result<Event, Infallible>>, message: &str) {
+    let payload = json!({
+        "code": "UPSTREAM",
+        "message": message,
+    })
+    .to_string();
+    let event = Event::default().event("error").data(payload);
+    let _ = tx.send(Ok(event)).await;
 }
 
 fn row_to_message(row: &sqlx::sqlite::SqliteRow) -> Result<Message, AppError> {
