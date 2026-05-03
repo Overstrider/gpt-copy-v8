@@ -337,3 +337,30 @@ async fn stream_error_sanitizes_and_does_not_persist_messages() {
     let body = common::read_json(res).await;
     assert_eq!(body.as_array().unwrap().len(), 0);
 }
+
+#[tokio::test]
+async fn stream_oversized_assistant_emits_error_and_does_not_persist_messages() {
+    let too_large = "x".repeat(128 * 1024 + 1);
+    let app = common::test_app_with_mock(MockOpenRouterClient::with_stream(vec![&too_large])).await;
+    let conv_id = create_conversation(&app, "c").await;
+    let res = app
+        .clone()
+        .oneshot(post_json(
+            &format!("/api/conversations/{conv_id}/stream"),
+            json!({ "content": "hi" }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body_text = common::read_text(res).await;
+    assert!(body_text.contains("event: error"));
+    assert!(body_text.contains("Provider unavailable"));
+    assert!(!body_text.contains("event: done"));
+
+    let res = app
+        .oneshot(get(&format!("/api/conversations/{conv_id}/messages")))
+        .await
+        .unwrap();
+    let body = common::read_json(res).await;
+    assert_eq!(body.as_array().unwrap().len(), 0);
+}

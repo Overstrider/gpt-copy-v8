@@ -36,6 +36,26 @@ async fn list_returns_empty_array() {
 }
 
 #[tokio::test]
+async fn api_rate_limit_returns_429_after_bucket_is_exhausted() {
+    let app = common::test_app().await;
+
+    for _ in 0..60 {
+        let res = app
+            .clone()
+            .oneshot(get("/api/conversations"))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+    }
+
+    let res = app.oneshot(get("/api/conversations")).await.unwrap();
+    assert_eq!(res.status(), StatusCode::TOO_MANY_REQUESTS);
+    let body = common::read_json(res).await;
+    assert_eq!(body["error"]["code"], "RATE_LIMITED");
+    assert_eq!(body["error"]["message"], "too many requests");
+}
+
+#[tokio::test]
 async fn create_rejects_empty_title() {
     let app = common::test_app().await;
     let res = app

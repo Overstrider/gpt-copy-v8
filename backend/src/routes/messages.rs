@@ -188,6 +188,8 @@ pub async fn stream(
         let assistant_id = Uuid::new_v4();
         let assistant_now = now_iso();
         if errored {
+            // Intentional: upstream failures and over-cap streams discard both
+            // messages so the user can retry without committing a broken turn.
             return;
         }
 
