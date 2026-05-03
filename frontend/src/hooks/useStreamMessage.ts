@@ -59,7 +59,7 @@ export function useStreamMessage(): UseStreamMessageResult {
           while ((idx = pending.indexOf("\n\n")) !== -1) {
             const raw = pending.slice(0, idx);
             pending = pending.slice(idx + 2);
-            let evt = "message";
+            let evt: string | null = null;
             let data = "";
             for (const line of raw.split("\n")) {
               if (line.startsWith("event:")) evt = line.slice(6).trim();
@@ -78,6 +78,8 @@ export function useStreamMessage(): UseStreamMessageResult {
             } else if (evt === "error") {
               setStatus("error");
               setError(parseStreamError(data));
+            } else if (evt && process.env.NODE_ENV !== "production") {
+              console.warn(`Unhandled SSE event: ${evt}`);
             }
           }
         }

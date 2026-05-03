@@ -16,6 +16,12 @@ pub enum OpenRouterError {
     Stream(String),
 }
 
+impl OpenRouterError {
+    pub fn client_message(&self) -> &'static str {
+        "Provider unavailable"
+    }
+}
+
 impl From<reqwest::Error> for OpenRouterError {
     fn from(e: reqwest::Error) -> Self {
         OpenRouterError::Transport(e.to_string())

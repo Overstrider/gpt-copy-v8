@@ -63,6 +63,7 @@ impl IntoResponse for AppError {
 
 impl From<OpenRouterError> for AppError {
     fn from(err: OpenRouterError) -> Self {
-        AppError::Upstream(err.to_string())
+        tracing::warn!(error = ?err, "upstream provider error");
+        AppError::Upstream(err.client_message().to_string())
     }
 }

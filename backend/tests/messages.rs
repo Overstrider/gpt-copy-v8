@@ -115,6 +115,7 @@ async fn send_502_when_upstream_fails() {
     .await;
     let conv_id = create_conversation(&app, "c").await;
     let res = app
+        .clone()
         .oneshot(post_json(
             &format!("/api/conversations/{conv_id}/messages"),
             json!({ "content": "hi" }),
@@ -124,6 +125,14 @@ async fn send_502_when_upstream_fails() {
     assert_eq!(res.status(), StatusCode::BAD_GATEWAY);
     let body = common::read_json(res).await;
     assert_eq!(body["error"]["code"], "UPSTREAM");
+
+    let res = app
+        .oneshot(get(&format!("/api/conversations/{conv_id}/messages")))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = common::read_json(res).await;
+    assert_eq!(body.as_array().unwrap().len(), 0);
 }
 
 #[tokio::test]
@@ -213,4 +222,33 @@ async fn stream_emits_tokens_then_done() {
     }
     assert_eq!(tokens, vec!["Hel".to_string(), "lo".to_string()]);
     assert!(saw_done, "expected done event");
+}
+
+#[tokio::test]
+async fn stream_error_sanitizes_and_does_not_persist_messages() {
+    let app = common::test_app_with_mock(MockOpenRouterClient::with_stream_error(
+        OpenRouterError::HttpStatus(429),
+    ))
+    .await;
+    let conv_id = create_conversation(&app, "c").await;
+    let res = app
+        .clone()
+        .oneshot(post_json(
+            &format!("/api/conversations/{conv_id}/stream"),
+            json!({ "content": "hi" }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body_text = common::read_text(res).await;
+    assert!(body_text.contains("event: error"));
+    assert!(body_text.contains("Provider unavailable"));
+    assert!(!body_text.contains("429"));
+
+    let res = app
+        .oneshot(get(&format!("/api/conversations/{conv_id}/messages")))
+        .await
+        .unwrap();
+    let body = common::read_json(res).await;
+    assert_eq!(body.as_array().unwrap().len(), 0);
 }

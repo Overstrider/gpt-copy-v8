@@ -21,6 +21,8 @@ use crate::{
     state::AppState,
 };
 
+const MAX_STREAMED_ASSISTANT_BYTES: usize = 128 * 1024;
+
 pub async fn list(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
@@ -49,7 +51,17 @@ pub async fn send(
     validate_content(&body.content)?;
     ensure_conversation_exists(&state.pool, conv_id).await?;
 
-    // Persist user message first.
+    let mut history = load_history(&state.pool, conv_id).await?;
+    history.push(ChatMessage {
+        role: Role::User.as_str().to_string(),
+        content: body.content.clone(),
+    });
+
+    let assistant_text = state
+        .openrouter
+        .chat(&state.config.openrouter_model, history)
+        .await?;
+
     let user_id = Uuid::new_v4();
     let user_now = now_iso();
     insert_message(
@@ -61,15 +73,6 @@ pub async fn send(
         &user_now,
     )
     .await?;
-
-    // Build history including the new user msg.
-    let history = load_history(&state.pool, conv_id).await?;
-
-    // Call OpenRouter (sync). On failure, the user msg remains.
-    let assistant_text = state
-        .openrouter
-        .chat(&state.config.openrouter_model, history)
-        .await?;
 
     let assistant_id = Uuid::new_v4();
     let assistant_now = now_iso();
@@ -117,23 +120,19 @@ pub async fn stream(
     validate_content(&body.content)?;
     ensure_conversation_exists(&state.pool, conv_id).await?;
 
-    let user_id = Uuid::new_v4();
-    let user_now = now_iso();
-    insert_message(
-        &state.pool,
-        user_id,
-        conv_id,
-        Role::User,
-        &body.content,
-        &user_now,
-    )
-    .await?;
-
-    let history = load_history(&state.pool, conv_id).await?;
+    let mut history = load_history(&state.pool, conv_id).await?;
+    history.push(ChatMessage {
+        role: Role::User.as_str().to_string(),
+        content: body.content.clone(),
+    });
     let mut upstream = state
         .openrouter
         .stream(&state.config.openrouter_model, history)
         .await?;
+
+    let user_id = Uuid::new_v4();
+    let user_now = now_iso();
+    let user_content = body.content;
 
     let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(32);
 
@@ -145,18 +144,30 @@ pub async fn stream(
         while let Some(item) = upstream.next().await {
             match item {
                 Ok(token) => {
+                    if accumulated.len() + token.len() > MAX_STREAMED_ASSISTANT_BYTES {
+                        errored = true;
+                        let payload = json!({
+                            "code": "UPSTREAM",
+                            "message": "Provider unavailable",
+                        })
+                        .to_string();
+                        let _ = tx
+                            .send(Ok(Event::default().event("error").data(payload)))
+                            .await;
+                        break;
+                    }
                     accumulated.push_str(&token);
                     let event = Event::default().event("token").data(token);
                     if tx.send(Ok(event)).await.is_err() {
-                        // Client disconnected — persist partial.
                         break;
                     }
                 }
                 Err(e) => {
                     errored = true;
+                    tracing::warn!(error = ?e, "upstream stream failed");
                     let payload = json!({
                         "code": "UPSTREAM",
-                        "message": e.to_string(),
+                        "message": e.client_message(),
                     })
                     .to_string();
                     let event = Event::default().event("error").data(payload);
@@ -168,7 +179,20 @@ pub async fn stream(
 
         let assistant_id = Uuid::new_v4();
         let assistant_now = now_iso();
-        if !accumulated.is_empty() {
+        if !errored && !accumulated.is_empty() {
+            if let Err(e) = insert_message(
+                &pool,
+                user_id,
+                conv_id,
+                Role::User,
+                &user_content,
+                &user_now,
+            )
+            .await
+            {
+                tracing::error!(error = ?e, "persist user msg failed");
+                return;
+            }
             if let Err(e) = insert_message(
                 &pool,
                 assistant_id,
